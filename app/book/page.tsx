@@ -34,10 +34,12 @@ const STEPS = ['Services', 'Date & Time', 'Your Info', 'Confirm']
 
 const CATEGORY_ORDER = ['Haircuts', 'Color', 'Treatments', 'Styling', 'Extensions', 'Other']
 
-function generateSlots(totalDuration: number, bookedSlots: { start: Date; end: Date }[]): TimeSlot[] {
+function generateSlots(totalDuration: number, bookedSlots: { start: Date; end: Date }[], openTime = '09:00', closeTime = '18:00'): TimeSlot[] {
   const slots: TimeSlot[] = []
-  const open = 9 * 60   // 9:00 AM in minutes
-  const close = 18 * 60 // 6:00 PM
+  const [oh, om] = openTime.split(':').map(Number)
+  const [ch, cm] = closeTime.split(':').map(Number)
+  const open  = oh * 60 + om
+  const close = ch * 60 + cm
 
   for (let m = open; m + totalDuration <= close; m += 30) {
     const hour = Math.floor(m / 60)
@@ -79,6 +81,7 @@ function BookingPageInner() {
   const [bookingRef, setBookingRef] = useState('')
   const [salonName, setSalonName] = useState('Stewart Hair')
   const [loadingSlots, setLoadingSlots] = useState(false)
+  const [availability, setAvailability] = useState<{ staff_id: string; day_of_week: number; open_time: string; close_time: string }[]>([])
 
   // Referral tracking
   const [referredBy, setReferredBy] = useState('')
@@ -116,16 +119,17 @@ function BookingPageInner() {
   }, [selectedDate, selectedStaff, totalDuration])
 
   async function fetchData() {
-    const [{ data: svcs }, { data: stf }, { data: user }] = await Promise.all([
+    const [{ data: svcs }, { data: stf }, { data: avail }] = await Promise.all([
       supabase.from('services').select('*').eq('owner_id', ownerId).eq('active', true).order('category').order('name'),
       supabase.from('staff').select('id,name,color,bg_color').eq('owner_id', ownerId).eq('active', true),
-      supabase.auth.admin ? Promise.resolve({ data: null }) : supabase.from('staff').select('id').eq('owner_id', ownerId).limit(1)
+      supabase.from('staff_availability').select('*').eq('owner_id', ownerId),
     ])
     if (svcs) setServices(svcs)
     if (stf && stf.length > 0) {
       setStaff(stf)
       setSelectedStaff(stf[0])
     }
+    if (avail) setAvailability(avail)
   }
 
   async function fetchSlots() {
@@ -150,7 +154,15 @@ function BookingPageInner() {
       return { start, end }
     })
 
-    setSlots(generateSlots(totalDuration, booked))
+    // Get open/close hours from availability for selected staff + day
+    const dow = selectedDate.getDay()
+    const staffAvail = selectedStaff
+      ? availability.find(a => a.staff_id === selectedStaff.id && a.day_of_week === dow)
+      : availability.find(a => a.day_of_week === dow)
+    const openTime  = staffAvail?.open_time  || '09:00'
+    const closeTime = staffAvail?.close_time || '18:00'
+
+    setSlots(generateSlots(totalDuration, booked, openTime, closeTime))
     setSelectedSlot(null)
     setLoadingSlots(false)
   }
@@ -488,9 +500,15 @@ function BookingPageInner() {
                 {Array.from({ length: getDaysInMonth(calMonth.getFullYear(), calMonth.getMonth()) }).map((_, i) => {
                   const day = new Date(calMonth.getFullYear(), calMonth.getMonth(), i + 1)
                   const isPast = day < today
-                  const isSunday = day.getDay() === 0
+                  const dow = day.getDay()
+                  // If availability records exist, only allow days covered; otherwise allow Mon–Sat
+                  const hasAvailRecords = availability.length > 0
+                  const staffAvailOnDay = selectedStaff
+                    ? availability.some(a => a.staff_id === selectedStaff.id && a.day_of_week === dow)
+                    : availability.some(a => a.day_of_week === dow)
+                  const isDayOff = hasAvailRecords ? !staffAvailOnDay : dow === 0
                   const isSelected = selectedDate?.toDateString() === day.toDateString()
-                  const disabled = isPast || isSunday
+                  const disabled = isPast || isDayOff
                   return (
                     <button
                       key={i}

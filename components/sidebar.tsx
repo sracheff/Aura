@@ -8,6 +8,7 @@ import {
   LayoutDashboard, CalendarDays, CalendarClock, Users, ShoppingCart,
   DollarSign, Users2, Gift, Package, BarChart3,
   Settings, Sparkles, PanelLeftClose, PanelLeftOpen, CreditCard, ClipboardList,
+  TrendingDown, Clock, Bell,
 } from 'lucide-react'
 
 const NAV = [
@@ -21,7 +22,10 @@ const NAV = [
   { href: '/gift-cards', label: 'Gift Cards',    icon: CreditCard },
   { href: '/referrals',  label: 'Referrals',     icon: Gift },
   { href: '/inventory',  label: 'Inventory',     icon: Package },
+  { href: '/expenses',   label: 'Expenses',      icon: TrendingDown },
   { href: '/reports',    label: 'Reports',       icon: BarChart3 },
+  { href: '/waitlist',   label: 'Waitlist',      icon: Clock },
+  { href: '/reminders',  label: 'Reminders',     icon: Bell },
   { href: '/forms',      label: 'Intake Forms',  icon: ClipboardList },
   { href: '/settings',   label: 'Settings',      icon: Settings },
 ]

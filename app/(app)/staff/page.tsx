@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/useAuth'
 import { supabase } from '@/lib/supabase'
 import Topbar from '@/components/topbar'
-import { Users, Plus, Edit2, Trash2, X, AlertCircle, Star, DollarSign, UserCheck } from 'lucide-react'
+import { Users, Plus, Edit2, Trash2, X, AlertCircle, Star, DollarSign, UserCheck, Clock, Check } from 'lucide-react'
 
 type Staff = {
   id: string
@@ -32,6 +32,8 @@ const COLOR_PRESETS = [
   { color: '#7E98C8', bg: '#EEF1F8' },
 ]
 
+const DAYS_OF_WEEK = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
+
 const emptyForm = {
   name: '', email: '', phone: '',
   color: '#C9A96E', bg_color: '#FBF5E8',
@@ -48,6 +50,12 @@ export default function StaffPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [staffTab, setStaffTab] = useState<'details' | 'availability'>('details')
+  const [availability, setAvailability] = useState<{ day_of_week: number; open_time: string; close_time: string; enabled: boolean }[]>(
+    DAYS_OF_WEEK.map((_, i) => ({ day_of_week: i, open_time: '09:00', close_time: '18:00', enabled: i >= 1 && i <= 5 }))
+  )
+  const [savingAvail, setSavingAvail] = useState(false)
+  const [availSaved, setAvailSaved] = useState(false)
 
   useEffect(() => {
     if (userId) fetchStaff()
@@ -60,6 +68,40 @@ export default function StaffPage() {
       .eq('owner_id', userId)
       .order('name')
     if (data) setStaff(data)
+  }
+
+  async function fetchAvailability(staffId: string) {
+    const { data } = await supabase
+      .from('staff_availability')
+      .select('*')
+      .eq('staff_id', staffId)
+    const base = DAYS_OF_WEEK.map((_, i) => {
+      const existing = data?.find(a => a.day_of_week === i)
+      return existing
+        ? { day_of_week: i, open_time: existing.open_time, close_time: existing.close_time, enabled: true }
+        : { day_of_week: i, open_time: '09:00', close_time: '18:00', enabled: i >= 1 && i <= 5 }
+    })
+    setAvailability(base)
+  }
+
+  async function saveAvailability() {
+    if (!selected) return
+    setSavingAvail(true)
+    // Delete existing then re-insert enabled days
+    await supabase.from('staff_availability').delete().eq('staff_id', selected.id)
+    const rows = availability
+      .filter(a => a.enabled)
+      .map(a => ({
+        owner_id: userId,
+        staff_id: selected.id,
+        day_of_week: a.day_of_week,
+        open_time: a.open_time,
+        close_time: a.close_time,
+      }))
+    if (rows.length > 0) await supabase.from('staff_availability').insert(rows)
+    setSavingAvail(false)
+    setAvailSaved(true)
+    setTimeout(() => setAvailSaved(false), 2500)
   }
 
   function openAdd() {
@@ -133,7 +175,12 @@ export default function StaffPage() {
               {staff.map(s => (
                 <div
                   key={s.id}
-                  onClick={() => setSelected(selected?.id === s.id ? null : s)}
+                  onClick={() => {
+                    const next = selected?.id === s.id ? null : s
+                    setSelected(next)
+                    setStaffTab('details')
+                    if (next) fetchAvailability(next.id)
+                  }}
                   className={`relative rounded-2xl p-5 border-2 cursor-pointer transition-all ${
                     selected?.id === s.id ? 'border-gold shadow-lg' : 'border-luma-border hover:border-gold/40'
                   } ${!s.active ? 'opacity-60' : ''}`}
@@ -197,7 +244,54 @@ export default function StaffPage() {
               </div>
             </div>
 
+            {/* Tab switcher */}
+            <div className="flex gap-1 px-5 py-3 border-b border-luma-border bg-luma-surface/50">
+              {(['details','availability'] as const).map(tab => (
+                <button key={tab} onClick={() => setStaffTab(tab)}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${staffTab === tab ? 'bg-white shadow-sm text-luma-black' : 'text-luma-muted hover:text-luma-black'}`}>
+                  {tab === 'availability' ? '📅 Availability' : '👤 Details'}
+                </button>
+              ))}
+            </div>
+
             <div className="flex-1 overflow-y-auto p-5 space-y-4">
+
+            {staffTab === 'availability' && (
+              <div className="space-y-3">
+                <p className="text-xs text-luma-muted">Set which days and hours {selected.name} is available. This controls the online booking calendar.</p>
+                {availability.map((a, i) => (
+                  <div key={i} className={`rounded-xl border transition-all ${a.enabled ? 'border-luma-border bg-white' : 'border-dashed border-luma-border bg-luma-surface opacity-60'}`}>
+                    <div className="flex items-center gap-3 px-4 py-3">
+                      <button
+                        onClick={() => setAvailability(prev => prev.map((d, idx) => idx === i ? { ...d, enabled: !d.enabled } : d))}
+                        className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${a.enabled ? 'bg-gold' : 'bg-luma-border'}`}
+                      >
+                        <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${a.enabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                      </button>
+                      <span className="text-sm font-medium text-luma-black w-24">{DAYS_OF_WEEK[i]}</span>
+                      {a.enabled && (
+                        <div className="flex items-center gap-2 ml-auto">
+                          <input type="time" value={a.open_time}
+                            onChange={e => setAvailability(prev => prev.map((d, idx) => idx === i ? { ...d, open_time: e.target.value } : d))}
+                            className="text-xs border border-luma-border rounded-lg px-2 py-1 focus:outline-none focus:border-gold" />
+                          <span className="text-xs text-luma-muted">–</span>
+                          <input type="time" value={a.close_time}
+                            onChange={e => setAvailability(prev => prev.map((d, idx) => idx === i ? { ...d, close_time: e.target.value } : d))}
+                            className="text-xs border border-luma-border rounded-lg px-2 py-1 focus:outline-none focus:border-gold" />
+                        </div>
+                      )}
+                      {!a.enabled && <span className="text-xs text-luma-muted ml-auto">Day off</span>}
+                    </div>
+                  </div>
+                ))}
+                <button onClick={saveAvailability} disabled={savingAvail}
+                  className={`w-full py-2.5 rounded-xl font-semibold text-sm transition-colors ${availSaved ? 'bg-green-100 text-green-700' : 'btn btn-primary'} disabled:opacity-60`}>
+                  {availSaved ? <><Check size={14} className="inline mr-1" />Saved!</> : savingAvail ? 'Saving...' : 'Save Availability'}
+                </button>
+              </div>
+            )}
+
+            {staffTab === 'details' && <>
               {/* Avatar + name */}
               <div className="flex flex-col items-center text-center py-4" style={{ backgroundColor: selected.bg_color, borderRadius: '16px' }}>
                 <div className="w-20 h-20 rounded-2xl flex items-center justify-center text-white text-3xl font-bold mb-3"
@@ -237,6 +331,7 @@ export default function StaffPage() {
                   <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${selected.active ? 'translate-x-5' : 'translate-x-0.5'}`} />
                 </button>
               </div>
+            </>}
             </div>
 
             {deleteConfirm && (

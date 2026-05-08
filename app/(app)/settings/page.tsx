@@ -29,6 +29,7 @@ export default function SettingsPage() {
   const [salonAddress, setSalonAddress] = useState('')
   const [taxRate, setTaxRate] = useState('8.5')
   const [timezone, setTimezone] = useState('America/New_York')
+  const [googleReviewUrl, setGoogleReviewUrl] = useState('')
 
   useEffect(() => {
     if (userId) {
@@ -55,13 +56,14 @@ export default function SettingsPage() {
       setTaxRate(user.user_metadata.tax_rate || '8.5')
       setTimezone(user.user_metadata.timezone || 'America/New_York')
       setCancelFee(user.user_metadata.cancel_fee || '50')
+      setGoogleReviewUrl(user.user_metadata.google_review_url || '')
     }
   }
 
   async function saveProfile() {
     setSavingProfile(true)
     await supabase.auth.updateUser({
-      data: { salon_name: salonName, salon_phone: salonPhone, salon_address: salonAddress, tax_rate: taxRate, timezone, cancel_fee: cancelFee }
+      data: { salon_name: salonName, salon_phone: salonPhone, salon_address: salonAddress, tax_rate: taxRate, timezone, cancel_fee: cancelFee, google_review_url: googleReviewUrl }
     })
     setSavingProfile(false)
     setSuccessMsg('Profile saved!')
@@ -164,6 +166,12 @@ export default function SettingsPage() {
                   <option value="America/Anchorage">Alaska (AKT)</option>
                   <option value="Pacific/Honolulu">Hawaii (HST)</option>
                 </select>
+              </div>
+              <div className="col-span-2">
+                <label className="label">Google Review Link</label>
+                <input className="input" type="url" value={googleReviewUrl} onChange={e => setGoogleReviewUrl(e.target.value)}
+                  placeholder="https://g.page/r/your-salon-id/review" />
+                <p className="text-xs text-luma-muted mt-1">Paste your Google Maps review link. This is included in review request SMS messages.</p>
               </div>
             </div>
             <div className="flex justify-end">

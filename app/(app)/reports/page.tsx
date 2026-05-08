@@ -8,7 +8,7 @@ import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis,
   Tooltip, ResponsiveContainer, CartesianGrid, Cell, PieChart, Pie
 } from 'recharts'
-import { TrendingUp, Users, Scissors, DollarSign, Star, Wallet } from 'lucide-react'
+import { TrendingUp, Users, Scissors, DollarSign, Star, Wallet, TrendingDown } from 'lucide-react'
 
 type ServiceStat = { name: string; count: number; revenue: number }
 type ClientStat = { name: string; spend: number; visits: number }
@@ -25,7 +25,9 @@ export default function ReportsPage() {
   const [summary, setSummary] = useState({ revenue: 0, transactions: 0, avgTicket: 0, newClients: 0 })
   const [sourceStats, setSourceStats] = useState<{ source: string; count: number }[]>([])
   const [payrollStats, setPayrollStats] = useState<{ name: string; revenue: number; appointments: number; commission_rate: number; payout: number; color: string }[]>([])
-  const [reportTab, setReportTab] = useState<'analytics' | 'payroll'>('analytics')
+  const [expenseStats, setExpenseStats] = useState<{ category: string; total: number }[]>([])
+  const [totalExpenses, setTotalExpenses] = useState(0)
+  const [reportTab, setReportTab] = useState<'analytics' | 'payroll' | 'pnl'>('analytics')
   const [loadingData, setLoadingData] = useState(false)
 
   useEffect(() => {
@@ -156,6 +158,21 @@ export default function ReportsPage() {
       )
     }
 
+    // Expense stats
+    const { data: expData } = await supabase
+      .from('expenses')
+      .select('category, amount')
+      .eq('owner_id', userId)
+      .gte('expense_date', start.split('T')[0])
+    if (expData) {
+      const catMap: Record<string, number> = {}
+      expData.forEach((e: { category: string; amount: number }) => {
+        catMap[e.category] = (catMap[e.category] || 0) + e.amount
+      })
+      setExpenseStats(Object.entries(catMap).map(([category, total]) => ({ category, total })).sort((a, b) => b.total - a.total))
+      setTotalExpenses(expData.reduce((s: number, e: { amount: number }) => s + e.amount, 0))
+    }
+
     setLoadingData(false)
   }
 
@@ -179,7 +196,7 @@ export default function ReportsPage() {
 
         {/* Tab switcher */}
         <div className="flex gap-1 bg-luma-surface border border-luma-border rounded-xl p-1 w-fit">
-          {([['analytics', 'Analytics'], ['payroll', 'Payroll']] as const).map(([val, label]) => (
+          {([['analytics', 'Analytics'], ['payroll', 'Payroll'], ['pnl', 'P&L']] as const).map(([val, label]) => (
             <button key={val} onClick={() => setReportTab(val)}
               className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${reportTab === val ? 'bg-white shadow-sm text-luma-black' : 'text-luma-muted hover:text-luma-black'}`}>
               {label}
@@ -238,6 +255,86 @@ export default function ReportsPage() {
                 </>
               )}
             </div>
+          </div>
+        )}
+
+        {reportTab === 'pnl' && (
+          <div className="space-y-6">
+            {/* P&L summary */}
+            <div className="grid grid-cols-3 gap-4">
+              {[
+                { label: 'Revenue', value: `$${summary.revenue.toFixed(0)}`, color: 'text-green-600', icon: <TrendingUp size={18} /> },
+                { label: 'Expenses', value: `$${totalExpenses.toFixed(0)}`, color: 'text-red-500', icon: <TrendingDown size={18} /> },
+                {
+                  label: 'Net Profit',
+                  value: `$${(summary.revenue - totalExpenses).toFixed(0)}`,
+                  color: summary.revenue - totalExpenses >= 0 ? 'text-green-600' : 'text-red-500',
+                  icon: <DollarSign size={18} />
+                },
+              ].map((k, i) => (
+                <div key={i} className="bg-white rounded-2xl p-5 border border-luma-border">
+                  <div className={`${k.color} mb-2`}>{k.icon}</div>
+                  <div className={`text-2xl font-bold ${k.color}`}>{k.value}</div>
+                  <div className="text-sm text-luma-muted">{k.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Margin */}
+            {summary.revenue > 0 && (
+              <div className="bg-white rounded-2xl p-5 border border-luma-border">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-bold text-luma-black">Profit Margin</h3>
+                  <span className={`text-lg font-bold ${((summary.revenue - totalExpenses) / summary.revenue) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                    {(((summary.revenue - totalExpenses) / summary.revenue) * 100).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="h-3 bg-luma-surface rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-green-500 transition-all"
+                    style={{ width: `${Math.max(0, Math.min(100, ((summary.revenue - totalExpenses) / summary.revenue) * 100))}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-xs text-luma-muted mt-2">
+                  <span>0%</span>
+                  <span>100%</span>
+                </div>
+              </div>
+            )}
+
+            {/* Expense breakdown */}
+            {expenseStats.length > 0 && (
+              <div className="bg-white rounded-2xl p-5 border border-luma-border">
+                <h3 className="font-bold text-luma-black mb-4 flex items-center gap-2"><TrendingDown size={16} className="text-red-400" />Expense Breakdown</h3>
+                <div className="space-y-3">
+                  {expenseStats.map(e => {
+                    const pct = totalExpenses > 0 ? (e.total / totalExpenses) * 100 : 0
+                    return (
+                      <div key={e.category} className="flex items-center gap-3">
+                        <div className="w-24 shrink-0 text-sm font-medium text-luma-black capitalize">{e.category}</div>
+                        <div className="flex-1 h-2 bg-luma-surface rounded-full overflow-hidden">
+                          <div className="h-full bg-red-400 rounded-full" style={{ width: `${pct}%` }} />
+                        </div>
+                        <div className="text-sm font-bold text-luma-black w-20 text-right">${e.total.toFixed(0)}</div>
+                        <div className="text-xs text-luma-muted w-10 text-right">{pct.toFixed(0)}%</div>
+                      </div>
+                    )
+                  })}
+                </div>
+                <div className="mt-4 pt-3 border-t border-luma-border flex justify-between text-sm font-bold">
+                  <span>Total Expenses</span>
+                  <span className="text-red-500">${totalExpenses.toFixed(0)}</span>
+                </div>
+              </div>
+            )}
+
+            {expenseStats.length === 0 && (
+              <div className="bg-white rounded-2xl p-10 border border-luma-border text-center text-luma-muted">
+                <TrendingDown size={32} className="mx-auto mb-3 opacity-20" />
+                <p className="font-medium text-luma-black">No expenses logged yet</p>
+                <p className="text-sm mt-1">Add expenses in the Expenses section to see your P&L here</p>
+              </div>
+            )}
           </div>
         )}
 

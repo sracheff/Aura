@@ -5,7 +5,7 @@ import Topbar from '@/components/topbar'
 import { useAuth } from '@/lib/useAuth'
 import { supabase } from '@/lib/supabase'
 import { clsx } from 'clsx'
-import { ChevronLeft, ChevronRight, Loader2, X, Clock, Plus, Trash2, RefreshCw, AlertTriangle, Timer, Bell, CheckCircle2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Loader2, X, Clock, Plus, Trash2, RefreshCw, AlertTriangle, Timer, Bell, CheckCircle2, Star, FileText } from 'lucide-react'
 
 type CalView = 'day' | 'week' | 'month'
 
@@ -27,7 +27,11 @@ export default function CalendarPage() {
   const [showModal, setShowModal] = useState(false)
   const [saving, setSaving]     = useState(false)
   const [sendingReminder, setSendingReminder] = useState(false)
-  const [reminderSent, setReminderSent]       = useState<string | null>(null) // appointmentId
+  const [reminderSent, setReminderSent]       = useState<string | null>(null)
+  const [sendingReview, setSendingReview]     = useState(false)
+  const [reviewSent, setReviewSent]           = useState<string | null>(null)
+  const [visitNotes, setVisitNotes]           = useState('')
+  const [savingNotes, setSavingNotes]         = useState(false)
 
   const [formBase, setFormBase] = useState({
     client_id: '', staff_id: '', date: '', time: '09:00', status: 'confirmed', notes: '', recurring_rule: 'none', buffer_minutes: '0',
@@ -183,6 +187,15 @@ export default function CalendarPage() {
     setSelected((prev: any) => prev ? { ...prev, status } : null)
   }
 
+  function selectAppointment(apt: any) {
+    if (selected?.id === apt.id) {
+      setSelected(null)
+    } else {
+      setSelected(apt)
+      setVisitNotes(apt.visit_notes || '')
+    }
+  }
+
   async function deleteAppointment(id: string) {
     await supabase.from('appointments').delete().eq('id', id)
     setSelected(null)
@@ -208,6 +221,37 @@ export default function CalendarPage() {
       alert('Network error sending reminder')
     }
     setSendingReminder(false)
+  }
+
+  async function sendReview(apptId: string) {
+    setSendingReview(true)
+    try {
+      // Get google review URL from user metadata
+      const { data: { user } } = await supabase.auth.getUser()
+      const reviewUrl = user?.user_metadata?.google_review_url || ''
+      const res = await fetch('/api/send-review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appointmentId: apptId, ownerId: userId, reviewUrl }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setReviewSent(apptId)
+        setTimeout(() => setReviewSent(null), 4000)
+      } else {
+        alert(data.error || 'Failed to send review request')
+      }
+    } catch {
+      alert('Network error sending review request')
+    }
+    setSendingReview(false)
+  }
+
+  async function saveVisitNotes(apptId: string) {
+    setSavingNotes(true)
+    await supabase.from('appointments').update({ visit_notes: visitNotes }).eq('id', apptId)
+    setSelected((prev: any) => prev ? { ...prev, visit_notes: visitNotes } : null)
+    setSavingNotes(false)
   }
 
   // ── Day view ─────────────────────────────────────────────────────────
@@ -618,6 +662,49 @@ export default function CalendarPage() {
                   }
                 </button>
               )}
+              {/* Send review request — only for completed appointments with a client */}
+              {selected.client_id && selected.status === 'completed' && (
+                <button
+                  onClick={() => sendReview(selected.id)}
+                  disabled={sendingReview || !!selected.review_sent_at}
+                  className={`w-full py-2 rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
+                    reviewSent === selected.id || selected.review_sent_at
+                      ? 'bg-yellow-50 text-yellow-600'
+                      : 'bg-yellow-50 text-yellow-700 hover:bg-yellow-100'
+                  }`}
+                >
+                  {reviewSent === selected.id
+                    ? <><CheckCircle2 size={14} />Review Sent!</>
+                    : selected.review_sent_at
+                    ? <><Star size={14} />Review Requested</>
+                    : sendingReview
+                    ? <><Loader2 size={14} className="animate-spin" />Sending…</>
+                    : <><Star size={14} />Request Google Review</>
+                  }
+                </button>
+              )}
+
+              {/* Visit notes */}
+              <div className="border-t border-luma-border pt-3 mt-1">
+                <label className="text-xs font-semibold text-luma-muted flex items-center gap-1 mb-1.5">
+                  <FileText size={11} />Visit Notes / Formula
+                </label>
+                <textarea
+                  rows={3}
+                  className="input w-full text-xs resize-none"
+                  placeholder="Color formula, client preferences, notes for next visit..."
+                  value={visitNotes}
+                  onChange={e => setVisitNotes(e.target.value)}
+                />
+                <button
+                  onClick={() => saveVisitNotes(selected.id)}
+                  disabled={savingNotes}
+                  className="mt-1.5 w-full py-1.5 bg-luma-surface border border-luma-border rounded-lg text-xs font-semibold text-luma-black hover:bg-luma-border transition-colors disabled:opacity-60"
+                >
+                  {savingNotes ? 'Saving…' : 'Save Notes'}
+                </button>
+              </div>
+
               <button
                 onClick={() => deleteAppointment(selected.id)}
                 className="w-full py-2 bg-red-50 text-red-600 rounded-xl text-sm font-semibold hover:bg-red-100 transition-colors"
