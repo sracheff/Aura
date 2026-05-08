@@ -8,9 +8,12 @@ import { Package, Plus, Edit2, Trash2, X, AlertCircle, AlertTriangle, ChevronDow
 
 const PRODUCT_TYPES = ['retail', 'backbar', 'supply']
 
+const TUBE_UNITS = ['oz', 'g', 'ml', 'L', 'fl oz']
+
 const emptyForm = {
   name: '', brand: '', type: 'retail',
-  qty: 0, reorder_at: 5, cost: 0, price: 0, low_stock_threshold: 0
+  qty: 0, reorder_at: 5, cost: 0, price: 0, low_stock_threshold: 0,
+  tube_size: '' as any, tube_size_unit: 'oz',
 }
 
 function calcMargin(cost: number, price: number) {
@@ -49,7 +52,7 @@ export default function InventoryPage() {
   }
 
   function openEdit(p: Product) {
-    setForm({ name: p.name, brand: p.brand || '', type: p.type, qty: p.qty, reorder_at: p.reorder_at, cost: p.cost, price: p.price, low_stock_threshold: p.low_stock_threshold || 0 })
+    setForm({ name: p.name, brand: p.brand || '', type: p.type, qty: p.qty, reorder_at: p.reorder_at, cost: p.cost, price: p.price, low_stock_threshold: p.low_stock_threshold || 0, tube_size: (p as any).tube_size || '', tube_size_unit: (p as any).tube_size_unit || 'oz' })
     setEditTarget(p)
     setError('')
     setShowModal(true)
@@ -179,7 +182,12 @@ export default function InventoryPage() {
                   const isLow = p.qty <= p.reorder_at
                   return (
                     <tr key={p.id} className="hover:bg-luma-surface transition-colors">
-                      <td className="px-6 py-3 font-medium text-luma-black">{p.name}</td>
+                      <td className="px-6 py-3">
+                        <span className="font-medium text-luma-black">{p.name}</span>
+                        {(p as any).tube_size && (
+                          <span className="ml-2 text-xs text-luma-muted">({(p as any).tube_size}{(p as any).tube_size_unit || 'oz'})</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-luma-muted">{p.brand || '—'}</td>
                       <td className="px-4 py-3">
                         <span className="px-2 py-0.5 bg-luma-surface text-luma-muted rounded-full text-xs capitalize">{p.type}</span>
@@ -275,6 +283,16 @@ export default function InventoryPage() {
                 <div>
                   <label className="label">Reorder At</label>
                   <input className="input" type="number" min="0" value={form.reorder_at} onChange={e => setForm({...form, reorder_at: parseInt(e.target.value)||0})} />
+                </div>
+                <div className="col-span-2">
+                  <label className="label">Tube / Container Size <span className="text-xs font-normal text-luma-muted">(used for smart inventory deduction in formulas)</span></label>
+                  <div className="flex gap-2">
+                    <input className="input flex-1" type="number" min="0" step="0.01" value={form.tube_size} onChange={e => setForm({...form, tube_size: e.target.value})} placeholder="e.g. 2" />
+                    <select className="input w-20" value={form.tube_size_unit} onChange={e => setForm({...form, tube_size_unit: e.target.value})}>
+                      {TUBE_UNITS.map(u => <option key={u}>{u}</option>)}
+                    </select>
+                  </div>
+                  <p className="text-xs text-luma-muted mt-1">When a formula uses 1.5oz of a 2oz tube, LUMA deducts 0.75 tubes from stock</p>
                 </div>
                 <div>
                   <label className="label">Cost ($)</label>

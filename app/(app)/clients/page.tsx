@@ -136,16 +136,23 @@ export default function ClientsPage() {
       savedOk = !error
     }
 
-    // Deduct inventory for each product used
+    // Deduct inventory for each product used (smart: uses tube_size for fractional deduction)
     if (savedOk && formulaForm.products_used.length > 0) {
       for (const p of formulaForm.products_used) {
         if (!p.product_id || !p.amount) continue
         const amt = parseFloat(p.amount) || 0
         if (amt <= 0) continue
-        // Fetch current qty
-        const { data: prod } = await supabase.from('products').select('qty').eq('id', p.product_id).single()
+        // Fetch current qty + tube size for smart deduction
+        const { data: prod } = await supabase.from('products').select('qty, tube_size, tube_size_unit').eq('id', p.product_id).single()
         if (prod) {
-          const newQty = Math.max(0, (prod.qty || 0) - amt)
+          let deductAmt = amt
+          // If the product has a tube size defined, deduct fractional tubes
+          // e.g. tube is 2oz, formula used 1.5oz → deduct 1.5/2 = 0.75 tubes
+          const tubeSize = parseFloat(prod.tube_size) || 0
+          if (tubeSize > 0) {
+            deductAmt = amt / tubeSize
+          }
+          const newQty = Math.max(0, (prod.qty || 0) - deductAmt)
           await supabase.from('products').update({ qty: newQty }).eq('id', p.product_id)
         }
       }

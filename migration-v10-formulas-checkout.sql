@@ -29,3 +29,10 @@ CREATE POLICY "owners manage client formulas"
 
 CREATE INDEX IF NOT EXISTS client_formulas_client_id_idx ON client_formulas(client_id);
 CREATE INDEX IF NOT EXISTS client_formulas_owner_id_idx ON client_formulas(owner_id);
+
+-- Add tube size fields to products table (for smart formula deduction)
+-- tube_size: how many units (oz, g, ml, etc.) are in one container/tube
+-- tube_size_unit: the unit of measurement
+ALTER TABLE products
+  ADD COLUMN IF NOT EXISTS tube_size      decimal(8,2) DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS tube_size_unit text         DEFAULT 'oz';
