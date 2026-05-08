@@ -1,9 +1,6 @@
 'use client'
 
-export const dynamic = 'force-dynamic'
-
-import { useState, useEffect, useRef, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/lib/useAuth'
 import { supabase, Client, Service } from '@/lib/supabase'
 import Topbar from '@/components/topbar'
@@ -41,7 +38,6 @@ const PAYMENT_METHODS = [
 
 export default function POSPage() {
   const { userId, loading } = useAuth()
-  const searchParams = useSearchParams()
   const preloadedRef = useRef(false)
   const [services, setServices] = useState<Service[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -89,10 +85,11 @@ export default function POSPage() {
 
   // Pre-populate from calendar appointment params
   useEffect(() => {
-    if (!userId || preloadedRef.current) return
-    const clientId = searchParams.get('clientId')
-    const clientName = searchParams.get('clientName')
-    const servicesParam = searchParams.get('services')
+    if (!userId || preloadedRef.current || typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const clientId = params.get('clientId')
+    const clientName = params.get('clientName')
+    const servicesParam = params.get('services')
 
     if (!servicesParam) return
     preloadedRef.current = true
@@ -125,7 +122,7 @@ export default function POSPage() {
       }, 300)
       setTimeout(() => clearInterval(interval), 5000)
     }
-  }, [userId, searchParams])
+  }, [userId])
 
   async function fetchServices() {
     const { data } = await supabase.from('services').select('*').eq('owner_id', userId).eq('active', true).order('name')
