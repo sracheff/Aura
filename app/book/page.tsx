@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase'
 import {
   Sparkles, CheckCircle, ChevronRight, ChevronLeft,
   Clock, DollarSign, User, Mail, Phone, CreditCard,
-  Calendar, AlertTriangle, Plus, Minus, Lock
+  Calendar, AlertTriangle, Plus, Minus, Lock, Gift
 } from 'lucide-react'
 
 type Service = {
@@ -60,7 +60,8 @@ function generateSlots(totalDuration: number, bookedSlots: { start: Date; end: D
 
 function BookingPageInner() {
   const params = useSearchParams()
-  const ownerId = params.get('owner')
+  const ownerId  = params.get('owner')
+  const refParam = params.get('ref')   // ?ref=<client_id> from a stylist's personal share link
 
   const [step, setStep] = useState(0)
   const [services, setServices] = useState<Service[]>([])
@@ -79,6 +80,12 @@ function BookingPageInner() {
   const [salonName, setSalonName] = useState('Stewart Hair')
   const [loadingSlots, setLoadingSlots] = useState(false)
 
+  // Referral tracking
+  const [referredBy, setReferredBy] = useState('')
+  const [referrerClientId, setReferrerClientId] = useState<string | null>(refParam)
+  const [referrerName, setReferrerName] = useState('')
+  const [lookingUpReferrer, setLookingUpReferrer] = useState(false)
+
   const totalPrice = selectedServices.reduce((s, sv) => s + sv.price * sv.qty, 0)
   const totalDuration = selectedServices.reduce((s, sv) => s + sv.duration * sv.qty, 0)
   const totalMins = `${Math.floor(totalDuration / 60) > 0 ? Math.floor(totalDuration / 60) + 'h ' : ''}${totalDuration % 60 > 0 ? (totalDuration % 60) + 'm' : ''}`
@@ -87,6 +94,14 @@ function BookingPageInner() {
     if (!ownerId) return
     fetchData()
   }, [ownerId])
+
+  // If booking link includes ?ref=<client_id>, resolve that client's name upfront
+  useEffect(() => {
+    if (!refParam || !ownerId) return
+    supabase.from('clients').select('id,name').eq('id', refParam).eq('owner_id', ownerId).single().then(({ data }) => {
+      if (data) setReferrerName(data.name)
+    })
+  }, [refParam, ownerId])
 
   useEffect(() => {
     if (selectedDate && totalDuration > 0) fetchSlots()
@@ -149,6 +164,41 @@ function BookingPageInner() {
     }
   }
 
+  async function lookupReferrer(value: string) {
+    if (!value.trim() || !ownerId) return
+    setLookingUpReferrer(true)
+    setReferrerClientId(null)
+    setReferrerName('')
+
+    // Try phone first: strip to digits and search
+    const digits = value.replace(/\D/g, '')
+    if (digits.length >= 7) {
+      const { data: byPhone } = await supabase
+        .from('clients').select('id,name')
+        .eq('owner_id', ownerId)
+        .ilike('phone', `%${digits.slice(-10)}%`)
+        .limit(1)
+      if (byPhone && byPhone.length > 0) {
+        setReferrerClientId(byPhone[0].id)
+        setReferrerName(byPhone[0].name)
+        setLookingUpReferrer(false)
+        return
+      }
+    }
+
+    // Fall back to name search
+    const { data: byName } = await supabase
+      .from('clients').select('id,name')
+      .eq('owner_id', ownerId)
+      .ilike('name', `%${value.trim()}%`)
+      .limit(1)
+    if (byName && byName.length > 0) {
+      setReferrerClientId(byName[0].id)
+      setReferrerName(byName[0].name)
+    }
+    setLookingUpReferrer(false)
+  }
+
   async function submitBooking() {
     if (!ownerId || !selectedSlot || !selectedDate || selectedServices.length === 0) return
     setSubmitting(true)
@@ -195,6 +245,25 @@ function BookingPageInner() {
         }))
       )
       setBookingRef(appt.id.slice(0, 8).toUpperCase())
+    }
+
+    // Record referral if provided
+    const hasReferrer = referrerClientId || referredBy.trim()
+    if (hasReferrer && clientId) {
+      // Attach to first active campaign if one exists
+      const { data: campaigns } = await supabase
+        .from('referral_campaigns').select('id')
+        .eq('owner_id', ownerId).eq('status', 'active').limit(1)
+
+      await supabase.from('referrals').insert({
+        owner_id: ownerId,
+        campaign_id: campaigns?.[0]?.id || null,
+        referrer_client_id: referrerClientId || null,
+        referred_client_id: clientId,
+        referred_name: null,
+        status: 'converted',
+        notes: !referrerClientId && referredBy.trim() ? `Self-reported: "${referredBy.trim()}"` : null,
+      })
     }
 
     setSubmitting(false)
@@ -494,6 +563,41 @@ function BookingPageInner() {
             <div>
               <label className="label">Notes for your stylist (optional)</label>
               <textarea className="input min-h-[80px] resize-none" placeholder="Anything your stylist should know..." value={form.notes} onChange={e => setForm(f => ({...f, notes: e.target.value}))} />
+            </div>
+
+            {/* Referral field */}
+            <div className="border-t border-luma-border pt-4">
+              <label className="label">Were you referred by someone? (optional)</label>
+              {refParam && referrerName ? (
+                <div className="flex items-center gap-2 px-3 py-2.5 bg-green-50 border border-green-200 rounded-xl text-sm">
+                  <CheckCircle size={14} className="text-green-600 shrink-0" />
+                  <span className="text-green-700 font-medium">Referred by {referrerName}</span>
+                </div>
+              ) : (
+                <>
+                  <div className="relative">
+                    <Gift size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-luma-muted" />
+                    <input
+                      className="input pl-9"
+                      placeholder="Their name or phone number"
+                      value={referredBy}
+                      onChange={e => { setReferredBy(e.target.value); setReferrerClientId(null); setReferrerName('') }}
+                      onBlur={() => lookupReferrer(referredBy)}
+                    />
+                    {lookingUpReferrer && (
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-gold border-t-transparent rounded-full animate-spin" />
+                    )}
+                  </div>
+                  {referrerName && (
+                    <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                      <CheckCircle size={11} />Found: {referrerName} — we'll make sure they get credit!
+                    </p>
+                  )}
+                  {!referrerName && referredBy.trim().length > 2 && !lookingUpReferrer && (
+                    <p className="text-xs text-luma-muted mt-1">We'll note this referral — thank you!</p>
+                  )}
+                </>
+              )}
             </div>
           </div>
         )}
