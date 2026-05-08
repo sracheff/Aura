@@ -1,160 +1,281 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useAuth } from '@/lib/useAuth'
+import { supabase, Expense } from '@/lib/supabase'
 import Topbar from '@/components/topbar'
-import { REVENUE_MONTHLY, EXPENSES } from '@/lib/data'
-import {
-  AreaChart, Area, PieChart, Pie, Cell, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-} from 'recharts'
-import { TrendingUp, TrendingDown, DollarSign, CreditCard, Receipt, Download } from 'lucide-react'
-import { clsx } from 'clsx'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { TrendingUp, TrendingDown, DollarSign, Plus, Edit2, Trash2, X, AlertCircle } from 'lucide-react'
 
-const totalRevenue = REVENUE_MONTHLY.reduce((s, m) => s + m.revenue, 0)
-const totalExpenses = EXPENSES.reduce((s, e) => s + e.amount, 0)
-const netProfit = totalRevenue - totalExpenses
-const margin = ((netProfit / totalRevenue) * 100).toFixed(1)
+const EXPENSE_CATEGORIES = ['Rent', 'Utilities', 'Payroll', 'Supplies', 'Marketing', 'Insurance', 'Equipment', 'Software', 'Other']
+const EXPENSE_TYPES = ['fixed', 'variable']
 
-const PIE_COLORS = ['#C9A96E', '#F4C5C5', '#6E9BC9', '#7BC96E', '#C96EB8']
+const emptyForm = {
+  category: 'Rent', vendor: '', amount: 0,
+  type: 'fixed', date: new Date().toISOString().split('T')[0]
+}
 
 export default function FinancePage() {
-  const [period, setPeriod] = useState<'monthly' | 'weekly'>('monthly')
+  const { userId, loading } = useAuth()
+  const [expenses, setExpenses] = useState<Expense[]>([])
+  const [revenueData, setRevenueData] = useState<{ month: string; revenue: number; expenses: number }[]>([])
+  const [showModal, setShowModal] = useState(false)
+  const [editTarget, setEditTarget] = useState<Expense | null>(null)
+  const [form, setForm] = useState(emptyForm)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<Expense | null>(null)
+  const [period, setPeriod] = useState<'month' | 'quarter' | 'year'>('month')
+
+  useEffect(() => {
+    if (userId) {
+      fetchExpenses()
+      fetchRevenue()
+    }
+  }, [userId, period])
+
+  async function fetchExpenses() {
+    const { data } = await supabase
+      .from('expenses')
+      .select('*')
+      .eq('owner_id', userId)
+      .order('date', { ascending: false })
+    if (data) setExpenses(data)
+  }
+
+  async function fetchRevenue() {
+    // Build monthly buckets for past 6 months
+    const months: { month: string; revenue: number; expenses: number }[] = []
+    const now = new Date()
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+      const start = d.toISOString()
+      const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59).toISOString()
+
+      const [txRes, expRes] = await Promise.all([
+        supabase.from('transactions').select('total').eq('owner_id', userId).gte('created_at', start).lte('created_at', end),
+        supabase.from('expenses').select('amount').eq('owner_id', userId).gte('date', start.split('T')[0]).lte('date', end.split('T')[0])
+      ])
+      const rev = (txRes.data || []).reduce((s, t) => s + t.total, 0)
+      const exp = (expRes.data || []).reduce((s, e) => s + e.amount, 0)
+      months.push({ month: label, revenue: rev, expenses: exp })
+    }
+    setRevenueData(months)
+  }
+
+  const currentMonth = revenueData[revenueData.length - 1]
+  const totalRevenue = (revenueData[revenueData.length - 1]?.revenue || 0)
+  const totalExpenses = expenses
+    .filter(e => {
+      const d = new Date(e.date)
+      const now = new Date()
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+    })
+    .reduce((s, e) => s + e.amount, 0)
+  const netProfit = totalRevenue - totalExpenses
+  const profitMargin = totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(1) : '0'
+
+  function openAdd() {
+    setForm(emptyForm)
+    setEditTarget(null)
+    setError('')
+    setShowModal(true)
+  }
+
+  function openEdit(e: Expense) {
+    setForm({ category: e.category, vendor: e.vendor || '', amount: e.amount, type: e.type, date: e.date })
+    setEditTarget(e)
+    setError('')
+    setShowModal(true)
+  }
+
+  async function saveExpense() {
+    if (!form.amount || form.amount <= 0) { setError('Amount must be greater than 0'); return }
+    setSaving(true)
+    setError('')
+    const payload = { ...form, owner_id: userId }
+    if (editTarget) {
+      const { error: err } = await supabase.from('expenses').update(payload).eq('id', editTarget.id)
+      if (err) { setError(err.message); setSaving(false); return }
+    } else {
+      const { error: err } = await supabase.from('expenses').insert(payload)
+      if (err) { setError(err.message); setSaving(false); return }
+    }
+    setSaving(false)
+    setShowModal(false)
+    fetchExpenses()
+    fetchRevenue()
+  }
+
+  async function deleteExpense() {
+    if (!deleteTarget) return
+    await supabase.from('expenses').delete().eq('id', deleteTarget.id)
+    setDeleteTarget(null)
+    fetchExpenses()
+    fetchRevenue()
+  }
+
+  const expenseByCategory = EXPENSE_CATEGORIES.map(cat => ({
+    cat,
+    total: expenses.filter(e => e.category === cat).reduce((s, e) => s + e.amount, 0)
+  })).filter(c => c.total > 0).sort((a, b) => b.total - a.total)
+
+  if (loading) return <div className="flex-1 flex items-center justify-center"><div className="w-6 h-6 border-2 border-gold border-t-transparent rounded-full animate-spin" /></div>
 
   return (
-    <div>
-      <Topbar title="Finance" subtitle="Revenue, expenses & profit overview" action={{ label: 'Export Report' }} />
-      <div className="p-6 space-y-6">
+    <div className="flex-1 flex flex-col min-h-0">
+      <Topbar title="Finance" action={{ label: 'Add Expense', onClick: openAdd }} />
 
+      <div className="flex-1 overflow-y-auto p-6 space-y-6">
         {/* KPI row */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-4 gap-4">
           {[
-            { label: 'Total Revenue (YTD)', val: `$${totalRevenue.toLocaleString()}`, delta: '+18% vs 2025', up: true, icon: TrendingUp, color: 'text-green-600', bg: 'bg-green-50' },
-            { label: 'Total Expenses', val: `$${totalExpenses.toLocaleString()}`, delta: '+5% vs 2025', up: false, icon: Receipt, color: 'text-red-500', bg: 'bg-red-50' },
-            { label: 'Net Profit', val: `$${netProfit.toLocaleString()}`, delta: '+22% vs 2025', up: true, icon: DollarSign, color: 'text-blue-600', bg: 'bg-blue-50' },
-            { label: 'Profit Margin', val: `${margin}%`, delta: '+2.1pts vs 2025', up: true, icon: CreditCard, color: 'text-gold', bg: 'bg-gold/10' },
-          ].map(({ label, val, delta, up, icon: Icon, color, bg }) => (
-            <div key={label} className="card">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="kpi-label">{label}</p>
-                  <p className="kpi-value">{val}</p>
-                </div>
-                <div className={clsx('w-10 h-10 rounded-xl flex items-center justify-center', bg)}>
-                  <Icon size={18} className={color} />
-                </div>
-              </div>
-              <div className={clsx('flex items-center gap-1 mt-2 text-xs font-medium', up ? 'text-green-600' : 'text-red-500')}>
-                {up ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                {delta}
-              </div>
+            { label: 'Revenue (MTD)', value: `$${totalRevenue.toFixed(0)}`, icon: <TrendingUp size={20} />, color: 'text-green-600', bg: 'bg-green-50' },
+            { label: 'Expenses (MTD)', value: `$${totalExpenses.toFixed(0)}`, icon: <TrendingDown size={20} />, color: 'text-red-500', bg: 'bg-red-50' },
+            { label: 'Net Profit', value: `$${netProfit.toFixed(0)}`, icon: <DollarSign size={20} />, color: netProfit >= 0 ? 'text-gold' : 'text-red-500', bg: netProfit >= 0 ? 'bg-gold/10' : 'bg-red-50' },
+            { label: 'Profit Margin', value: `${profitMargin}%`, icon: <TrendingUp size={20} />, color: 'text-blue-600', bg: 'bg-blue-50' },
+          ].map((k, i) => (
+            <div key={i} className="bg-white rounded-2xl p-5 border border-luma-border">
+              <div className={`w-10 h-10 rounded-xl ${k.bg} ${k.color} flex items-center justify-center mb-3`}>{k.icon}</div>
+              <div className="text-2xl font-bold text-luma-black">{k.value}</div>
+              <div className="text-sm text-luma-muted mt-1">{k.label}</div>
             </div>
           ))}
         </div>
 
-        {/* Revenue chart */}
-        <div className="card">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="font-semibold text-luma-black">Revenue vs Expenses</h3>
-              <p className="text-xs text-luma-muted">Jan–May 2026</p>
-            </div>
-            <div className="flex gap-1 bg-luma-bg border border-luma-border rounded-lg p-0.5">
-              {(['monthly', 'weekly'] as const).map((v) => (
-                <button key={v} onClick={() => setPeriod(v)} className={clsx('px-3 py-1.5 rounded-md text-xs font-medium transition-all capitalize', period === v ? 'bg-white shadow-sm text-luma-black' : 'text-luma-muted')}>
-                  {v}
-                </button>
-              ))}
-            </div>
-          </div>
+        {/* Revenue vs Expenses chart */}
+        <div className="bg-white rounded-2xl p-6 border border-luma-border">
+          <h3 className="font-bold text-luma-black mb-4">Revenue vs Expenses (6 Months)</h3>
           <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={REVENUE_MONTHLY}>
-              <defs>
-                <linearGradient id="rev" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#C9A96E" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#C9A96E" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="exp" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#F4C5C5" stopOpacity={0.5} />
-                  <stop offset="95%" stopColor="#F4C5C5" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E5DFD3" />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#888' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#888' }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-              <Tooltip formatter={(v: number) => `$${v.toLocaleString()}`} contentStyle={{ borderRadius: 8, border: '1px solid #E5DFD3', fontSize: 12 }} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
-              <Area type="monotone" dataKey="revenue" name="Revenue" stroke="#C9A96E" strokeWidth={2} fill="url(#rev)" />
-              <Area type="monotone" dataKey="expenses" name="Expenses" stroke="#F4C5C5" strokeWidth={2} fill="url(#exp)" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Expenses + Breakdown */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Expense table */}
-          <div className="card">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-luma-black">Expense Breakdown</h3>
-              <button className="btn btn-sm text-xs flex items-center gap-1"><Download size={12} /> Export</button>
-            </div>
-            <div className="space-y-2">
-              {EXPENSES.map((e) => (
-                <div key={e.id} className="flex items-center gap-3 p-3 bg-luma-bg rounded-xl">
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-luma-black">{e.category}</p>
-                    <p className="text-xs text-luma-muted">{e.vendor}</p>
-                  </div>
-                  <span className={clsx('tag text-xs', e.type === 'fixed' ? 'tag-blue' : 'tag-gold')}>{e.type}</span>
-                  <span className="text-sm font-bold text-luma-black">${e.amount.toLocaleString()}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Pie chart */}
-          <div className="card">
-            <h3 className="font-semibold text-luma-black mb-4">Revenue Sources</h3>
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie
-                  data={[
-                    { name: 'Hair Services', value: 62 },
-                    { name: 'Color', value: 18 },
-                    { name: 'Treatments', value: 10 },
-                    { name: 'Retail', value: 7 },
-                    { name: 'Other', value: 3 },
-                  ]}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={55}
-                  outerRadius={85}
-                  paddingAngle={3}
-                  dataKey="value"
-                >
-                  {PIE_COLORS.map((color, i) => <Cell key={i} fill={color} />)}
-                </Pie>
-                <Tooltip formatter={(v: number) => `${v}%`} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Revenue by service type bar */}
-        <div className="card">
-          <h3 className="font-semibold text-luma-black mb-4">Monthly Profit Trend</h3>
-          <ResponsiveContainer width="100%" height={160}>
-            <BarChart data={REVENUE_MONTHLY.map((m) => ({ ...m, profit: m.revenue - m.expenses }))}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E5DFD3" />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#888' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#888' }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-              <Tooltip formatter={(v: number) => `$${v.toLocaleString()}`} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-              <Bar dataKey="profit" name="Net Profit" fill="#C9A96E" radius={[6, 6, 0, 0]} />
+            <BarChart data={revenueData} barGap={4}>
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9E9085' }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: '#9E9085' }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
+              <Tooltip formatter={(v: number) => `$${v.toFixed(0)}`} contentStyle={{ borderRadius: 12, border: '1px solid #EDE8E1' }} />
+              <Bar dataKey="revenue" name="Revenue" fill="#C9A96E" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="expenses" name="Expenses" fill="#F4C5C5" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
 
+        <div className="grid grid-cols-5 gap-6">
+          {/* Expense breakdown */}
+          <div className="col-span-2 bg-white rounded-2xl p-5 border border-luma-border">
+            <h3 className="font-bold text-luma-black mb-4">Expenses by Category</h3>
+            {expenseByCategory.length === 0 ? (
+              <p className="text-sm text-luma-muted py-4 text-center">No expenses recorded yet</p>
+            ) : (
+              <div className="space-y-2">
+                {expenseByCategory.map(({ cat, total }) => {
+                  const maxTotal = expenseByCategory[0].total
+                  const pct = (total / maxTotal) * 100
+                  return (
+                    <div key={cat}>
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="font-medium text-luma-black">{cat}</span>
+                        <span className="text-luma-muted">${total.toFixed(0)}</span>
+                      </div>
+                      <div className="h-2 bg-luma-surface rounded-full overflow-hidden">
+                        <div className="h-full bg-gold rounded-full" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Expense list */}
+          <div className="col-span-3 bg-white rounded-2xl border border-luma-border overflow-hidden">
+            <div className="px-5 py-4 border-b border-luma-border flex items-center justify-between">
+              <h3 className="font-bold text-luma-black">Recent Expenses</h3>
+              <button onClick={openAdd} className="btn btn-primary py-1.5 px-3 text-sm">
+                <Plus size={14} className="inline mr-1" />Add
+              </button>
+            </div>
+            <div className="divide-y divide-luma-border max-h-80 overflow-y-auto">
+              {expenses.length === 0 ? (
+                <div className="py-10 text-center text-luma-muted text-sm">No expenses yet</div>
+              ) : (
+                expenses.map(e => (
+                  <div key={e.id} className="flex items-center px-5 py-3 hover:bg-luma-surface group">
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-luma-black">{e.category}</div>
+                      <div className="text-xs text-luma-muted">{e.vendor || '—'} · {new Date(e.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · <span className="capitalize">{e.type}</span></div>
+                    </div>
+                    <div className="text-base font-bold text-red-500 mr-3">-${e.amount.toFixed(0)}</div>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => openEdit(e)} className="p-1 rounded hover:bg-luma-border text-luma-muted hover:text-luma-black"><Edit2 size={12} /></button>
+                      <button onClick={() => setDeleteTarget(e)} className="p-1 rounded hover:bg-red-50 text-luma-muted hover:text-red-500"><Trash2 size={12} /></button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
       </div>
+
+      {/* Delete confirm */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 className="font-bold text-lg mb-2">Delete expense?</h3>
+            <p className="text-luma-muted text-sm mb-4">{deleteTarget.category} · ${deleteTarget.amount.toFixed(0)}</p>
+            <div className="flex gap-3">
+              <button onClick={() => setDeleteTarget(null)} className="flex-1 btn bg-luma-surface text-luma-black">Cancel</button>
+              <button onClick={deleteExpense} className="flex-1 py-2 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+            <div className="flex items-center justify-between p-6 border-b border-luma-border">
+              <h2 className="text-lg font-bold">{editTarget ? 'Edit Expense' : 'Add Expense'}</h2>
+              <button onClick={() => setShowModal(false)} className="p-2 hover:bg-luma-surface rounded-lg text-luma-muted"><X size={18} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              {error && <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm"><AlertCircle size={14} />{error}</div>}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Category</label>
+                  <select className="input" value={form.category} onChange={e => setForm({...form, category: e.target.value})}>
+                    {EXPENSE_CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Type</label>
+                  <select className="input" value={form.type} onChange={e => setForm({...form, type: e.target.value})}>
+                    {EXPENSE_TYPES.map(t => <option key={t} className="capitalize">{t}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Vendor / Payee</label>
+                  <input className="input" value={form.vendor} onChange={e => setForm({...form, vendor: e.target.value})} placeholder="Landlord, Supplier..." />
+                </div>
+                <div>
+                  <label className="label">Amount ($)</label>
+                  <input className="input" type="number" min="0" step="0.01" value={form.amount || ''} onChange={e => setForm({...form, amount: parseFloat(e.target.value)||0})} placeholder="0.00" />
+                </div>
+                <div className="col-span-2">
+                  <label className="label">Date</label>
+                  <input className="input" type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
+                </div>
+              </div>
+            </div>
+            <div className="p-6 border-t border-luma-border flex gap-3">
+              <button onClick={() => setShowModal(false)} className="flex-1 btn bg-luma-surface text-luma-black">Cancel</button>
+              <button onClick={saveExpense} disabled={saving} className="flex-1 btn btn-primary disabled:opacity-60">
+                {saving ? 'Saving...' : editTarget ? 'Save Changes' : 'Add Expense'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
