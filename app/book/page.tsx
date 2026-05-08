@@ -89,6 +89,11 @@ function BookingPageInner() {
   // Source tracking
   const [source, setSource] = useState('')
 
+  // Tip
+  const [tipPct, setTipPct] = useState(0)
+  const [customTipAmt, setCustomTipAmt] = useState('')
+  const [useCustomTip, setUseCustomTip] = useState(false)
+
   const totalPrice = selectedServices.reduce((s, sv) => s + sv.price * sv.qty, 0)
   const totalDuration = selectedServices.reduce((s, sv) => s + sv.duration * sv.qty, 0)
   const totalMins = `${Math.floor(totalDuration / 60) > 0 ? Math.floor(totalDuration / 60) + 'h ' : ''}${totalDuration % 60 > 0 ? (totalDuration % 60) + 'm' : ''}`
@@ -239,6 +244,7 @@ function BookingPageInner() {
       status: 'confirmed',
       notes: form.notes || null,
       source: source || null,
+      tip_amount: useCustomTip ? (parseFloat(customTipAmt) || 0) : totalPrice * (tipPct / 100),
     }).select('id').single()
 
     // Insert appointment_services
@@ -664,6 +670,38 @@ function BookingPageInner() {
                   {selectedDate?.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · {selectedSlot?.time}
                 </span>
               </div>
+            </div>
+
+            {/* Optional tip */}
+            <div className="bg-white rounded-2xl border border-luma-border p-4">
+              <h3 className="font-semibold text-sm text-luma-black mb-3">Add a Tip? <span className="text-luma-muted font-normal">(optional)</span></h3>
+              <div className="grid grid-cols-5 gap-1.5 mb-2">
+                {[0, 15, 18, 20, 25].map(p => (
+                  <button key={p} type="button"
+                    onClick={() => { setTipPct(p); setUseCustomTip(false); setCustomTipAmt('') }}
+                    className={`py-2 rounded-xl border-2 text-xs font-bold transition-all ${!useCustomTip && tipPct === p ? 'border-gold bg-gold/10 text-gold' : 'border-luma-border text-luma-muted hover:border-gold/30'}`}>
+                    {p === 0 ? 'None' : `${p}%`}
+                    {p > 0 && !useCustomTip && tipPct === p && (
+                      <span className="block text-xs font-normal">${(totalPrice * p / 100).toFixed(2)}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+              <button type="button" onClick={() => { setUseCustomTip(true); setTipPct(0) }}
+                className={`w-full py-2 rounded-xl border-2 text-xs font-semibold transition-all mb-2 ${useCustomTip ? 'border-gold bg-gold/10 text-gold' : 'border-luma-border text-luma-muted hover:border-gold/30'}`}>
+                Custom Amount
+              </button>
+              {useCustomTip && (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-luma-muted">$</span>
+                  <input type="number" min="0" step="0.01" autoFocus
+                    className="input flex-1 text-sm"
+                    placeholder="Enter tip amount"
+                    value={customTipAmt}
+                    onChange={e => setCustomTipAmt(e.target.value)} />
+                </div>
+              )}
+              <p className="text-xs text-luma-muted mt-2">Tips are collected at time of service</p>
             </div>
 
             {/* Card on file — Stripe placeholder */}

@@ -7,8 +7,20 @@ import { supabase } from '@/lib/supabase'
 import { clsx } from 'clsx'
 import {
   Gift, Users, DollarSign, Trophy, Copy, CheckCircle2,
-  TrendingUp, Plus, X, Trash2, Star, ChevronDown,
+  TrendingUp, Plus, X, Trash2, Star, ChevronDown, Zap,
 } from 'lucide-react'
+
+type LoyaltyRule = {
+  id: string
+  name: string
+  description: string | null
+  trigger_type: string
+  service_id: string | null
+  day_of_week: number | null
+  points_multiplier: number
+  bonus_points: number
+  active: boolean
+}
 
 type Campaign = {
   id: string
@@ -51,16 +63,24 @@ const CAMPAIGN_STATUS_COLORS: Record<string, string> = {
 
 export default function ReferralsPage() {
   const { userId, loading: authLoading } = useAuth()
-  const [campaigns, setCampaigns]   = useState<Campaign[]>([])
-  const [referrals, setReferrals]   = useState<Referral[]>([])
-  const [clients, setClients]       = useState<Client[]>([])
-  const [activeTab, setActiveTab]   = useState<'campaigns' | 'advocates' | 'all'>('campaigns')
-  const [copied, setCopied]         = useState(false)
-  const [loading, setLoading]       = useState(true)
+  const [campaigns, setCampaigns]       = useState<Campaign[]>([])
+  const [referrals, setReferrals]       = useState<Referral[]>([])
+  const [clients, setClients]           = useState<Client[]>([])
+  const [services, setServices]         = useState<{ id: string; name: string }[]>([])
+  const [loyaltyRules, setLoyaltyRules] = useState<LoyaltyRule[]>([])
+  const [activeTab, setActiveTab]       = useState<'campaigns' | 'advocates' | 'all' | 'loyalty'>('campaigns')
+  const [copied, setCopied]             = useState(false)
+  const [loading, setLoading]           = useState(true)
 
   // Modals
-  const [showNewCampaign, setShowNewCampaign] = useState(false)
-  const [showAddReferral, setShowAddReferral] = useState(false)
+  const [showNewCampaign, setShowNewCampaign]   = useState(false)
+  const [showAddReferral, setShowAddReferral]   = useState(false)
+  const [showNewRule, setShowNewRule]           = useState(false)
+  const [savingRule, setSavingRule]             = useState(false)
+  const [ruleForm, setRuleForm] = useState({
+    name: '', description: '', trigger_type: 'service',
+    service_id: '', day_of_week: '', points_multiplier: '2', bonus_points: '0',
+  })
   const [savingC, setSavingC] = useState(false)
   const [savingR, setSavingR] = useState(false)
 
@@ -77,7 +97,7 @@ export default function ReferralsPage() {
 
   async function fetchAll() {
     setLoading(true)
-    const [cRes, rRes, clRes] = await Promise.all([
+    const [cRes, rRes, clRes, svcRes, lrRes] = await Promise.all([
       supabase.from('referral_campaigns').select('*').eq('owner_id', userId).order('created_at', { ascending: false }),
       supabase.from('referrals').select(`
         *,
@@ -86,10 +106,14 @@ export default function ReferralsPage() {
         campaign:campaign_id(name)
       `).eq('owner_id', userId).order('created_at', { ascending: false }),
       supabase.from('clients').select('id,name').eq('owner_id', userId).order('name'),
+      supabase.from('services').select('id,name').eq('owner_id', userId).order('name'),
+      supabase.from('loyalty_rules').select('*').eq('owner_id', userId).order('created_at', { ascending: false }),
     ])
     setCampaigns(cRes.data || [])
     setReferrals(rRes.data || [])
     setClients(clRes.data || [])
+    setServices(svcRes.data || [])
+    setLoyaltyRules(lrRes.data || [])
     setLoading(false)
   }
 
@@ -193,6 +217,37 @@ export default function ReferralsPage() {
     fetchAll()
   }
 
+  // ── Loyalty rule CRUD ─────────────────────────────────────────────────
+  async function saveRule(e: React.FormEvent) {
+    e.preventDefault()
+    setSavingRule(true)
+    await supabase.from('loyalty_rules').insert({
+      owner_id: userId,
+      name: ruleForm.name,
+      description: ruleForm.description || null,
+      trigger_type: ruleForm.trigger_type,
+      service_id: ruleForm.trigger_type === 'service' && ruleForm.service_id ? ruleForm.service_id : null,
+      day_of_week: ruleForm.trigger_type === 'day_of_week' && ruleForm.day_of_week !== '' ? parseInt(ruleForm.day_of_week) : null,
+      points_multiplier: parseFloat(ruleForm.points_multiplier) || 2,
+      bonus_points: parseInt(ruleForm.bonus_points) || 0,
+      active: true,
+    })
+    setSavingRule(false)
+    setShowNewRule(false)
+    setRuleForm({ name: '', description: '', trigger_type: 'service', service_id: '', day_of_week: '', points_multiplier: '2', bonus_points: '0' })
+    fetchAll()
+  }
+
+  async function toggleRuleActive(id: string, active: boolean) {
+    await supabase.from('loyalty_rules').update({ active }).eq('id', id)
+    fetchAll()
+  }
+
+  async function deleteRule(id: string) {
+    await supabase.from('loyalty_rules').delete().eq('id', id)
+    fetchAll()
+  }
+
   async function rewardAdvocate(clientId: string) {
     // Mark all converted referrals for this advocate as rewarded
     await supabase.from('referrals')
@@ -284,6 +339,7 @@ export default function ReferralsPage() {
               ['campaigns', 'Campaigns'],
               ['advocates', 'Top Advocates'],
               ['all',       'All Referrals'],
+              ['loyalty',   'Loyalty Rules'],
             ] as const).map(([val, label]) => (
               <button
                 key={val}
@@ -296,6 +352,9 @@ export default function ReferralsPage() {
                 {label}
                 {val === 'all' && referrals.length > 0 && (
                   <span className="ml-1.5 text-xs bg-luma-surface text-luma-muted px-1.5 py-0.5 rounded-full">{referrals.length}</span>
+                )}
+                {val === 'loyalty' && loyaltyRules.length > 0 && (
+                  <span className="ml-1.5 text-xs bg-luma-surface text-luma-muted px-1.5 py-0.5 rounded-full">{loyaltyRules.length}</span>
                 )}
               </button>
             ))}
@@ -428,6 +487,90 @@ export default function ReferralsPage() {
             </div>
           )}
 
+          {/* ── Loyalty Rules tab ── */}
+          {activeTab === 'loyalty' && (
+            <div className="space-y-4">
+              {/* Explainer */}
+              <div className="bg-gradient-to-r from-gold/10 to-transparent border border-gold/20 rounded-2xl p-5 flex items-start gap-4">
+                <div className="w-10 h-10 rounded-xl bg-gold/20 flex items-center justify-center shrink-0">
+                  <Zap size={18} className="text-gold" />
+                </div>
+                <div>
+                  <p className="font-bold text-luma-black text-sm">Bonus Points Rules</p>
+                  <p className="text-xs text-luma-muted mt-1">Set up automatic bonus points for specific services, slow days, or any purchase. Clients earn more on the services and days you want to boost.</p>
+                </div>
+                <button
+                  onClick={() => setShowNewRule(true)}
+                  className="shrink-0 flex items-center gap-1.5 px-4 py-2 bg-luma-black text-white rounded-xl text-sm font-semibold hover:bg-gold transition-colors"
+                >
+                  <Plus size={14} />New Rule
+                </button>
+              </div>
+
+              {loyaltyRules.length === 0 ? (
+                <div className="bg-white rounded-2xl border border-luma-border p-12 text-center">
+                  <Zap size={36} className="mx-auto mb-3 text-luma-muted opacity-20" />
+                  <p className="font-medium text-luma-black">No loyalty rules yet</p>
+                  <p className="text-sm text-luma-muted mt-1">Create rules to give clients bonus points for specific services, slow days, or any visit</p>
+                  <button onClick={() => setShowNewRule(true)} className="mt-4 px-4 py-2 bg-luma-black text-white rounded-xl text-sm font-semibold hover:bg-gold transition-colors">
+                    + New Rule
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {loyaltyRules.map(rule => {
+                    const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+                    const triggerLabel =
+                      rule.trigger_type === 'service'
+                        ? `For service: ${services.find(s => s.id === rule.service_id)?.name || 'Unknown service'}`
+                        : rule.trigger_type === 'day_of_week'
+                        ? `On ${rule.day_of_week != null ? DAYS[rule.day_of_week] : '?'}s`
+                        : 'Every purchase'
+                    return (
+                      <div key={rule.id} className={`bg-white rounded-2xl border transition-all p-5 ${rule.active ? 'border-luma-border' : 'border-dashed border-luma-border opacity-60'}`}>
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${rule.active ? 'bg-gold/10' : 'bg-luma-surface'}`}>
+                              <Zap size={18} className={rule.active ? 'text-gold' : 'text-luma-muted'} />
+                            </div>
+                            <div>
+                              <p className="font-bold text-luma-black text-sm">{rule.name}</p>
+                              {rule.description && <p className="text-xs text-luma-muted mt-0.5">{rule.description}</p>}
+                              <p className="text-xs text-luma-muted mt-1">{triggerLabel}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <div className="flex items-center gap-3 bg-luma-surface rounded-xl px-3 py-2">
+                              {rule.points_multiplier > 1 && (
+                                <span className="text-xs font-bold text-luma-black">{rule.points_multiplier}× points</span>
+                              )}
+                              {rule.bonus_points > 0 && (
+                                <span className="text-xs font-bold text-luma-black">+{rule.bonus_points} pts</span>
+                              )}
+                            </div>
+                            {/* Active toggle */}
+                            <button
+                              onClick={() => toggleRuleActive(rule.id, !rule.active)}
+                              className={`relative w-10 h-6 rounded-full transition-colors ${rule.active ? 'bg-green-400' : 'bg-luma-surface border border-luma-border'}`}
+                            >
+                              <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all ${rule.active ? 'left-5' : 'left-1'}`} />
+                            </button>
+                            <button
+                              onClick={() => deleteRule(rule.id)}
+                              className="p-1.5 hover:bg-red-50 rounded-lg text-luma-muted hover:text-red-500 transition-colors"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ── All Referrals tab ── */}
           {activeTab === 'all' && (
             <div className="bg-white rounded-2xl border border-luma-border overflow-hidden">
@@ -548,6 +691,134 @@ export default function ReferralsPage() {
                 <button type="button" onClick={() => setShowNewCampaign(false)} className="flex-1 py-2.5 border border-luma-border rounded-xl text-sm font-semibold hover:bg-luma-surface">Cancel</button>
                 <button type="submit" disabled={savingC} className="flex-1 py-2.5 bg-luma-black text-white rounded-xl text-sm font-semibold hover:bg-gold transition-colors disabled:opacity-60">
                   {savingC ? 'Saving...' : 'Create Campaign'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── New Loyalty Rule modal ── */}
+      {showNewRule && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+            <div className="flex items-center justify-between p-5 border-b border-luma-border">
+              <div className="flex items-center gap-2">
+                <Zap size={16} className="text-gold" />
+                <h3 className="font-bold text-luma-black">New Loyalty Rule</h3>
+              </div>
+              <button onClick={() => setShowNewRule(false)} className="text-luma-muted hover:text-luma-black"><X size={18} /></button>
+            </div>
+            <form onSubmit={saveRule} className="p-5 space-y-4">
+              <div>
+                <label className="label">Rule Name *</label>
+                <input
+                  required className="input w-full"
+                  value={ruleForm.name}
+                  onChange={e => setRuleForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder="e.g. Double Points Tuesdays, Balayage Bonus"
+                />
+              </div>
+              <div>
+                <label className="label">Description (optional)</label>
+                <input
+                  className="input w-full"
+                  value={ruleForm.description}
+                  onChange={e => setRuleForm(f => ({ ...f, description: e.target.value }))}
+                  placeholder="Shown to clients explaining the bonus"
+                />
+              </div>
+              <div>
+                <label className="label">Trigger Type *</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    ['service',     'Specific Service', '✂️'],
+                    ['day_of_week', 'Day of Week',      '📅'],
+                    ['any',         'Any Purchase',     '🛍️'],
+                  ] as const).map(([val, label, emoji]) => (
+                    <button
+                      key={val} type="button"
+                      onClick={() => setRuleForm(f => ({ ...f, trigger_type: val }))}
+                      className={`p-3 rounded-xl border text-center transition-all ${ruleForm.trigger_type === val ? 'border-gold bg-gold/10 text-luma-black' : 'border-luma-border text-luma-muted hover:border-gold/40'}`}
+                    >
+                      <div className="text-lg mb-0.5">{emoji}</div>
+                      <div className="text-xs font-semibold">{label}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {ruleForm.trigger_type === 'service' && (
+                <div>
+                  <label className="label">Service *</label>
+                  <select
+                    required className="input w-full"
+                    value={ruleForm.service_id}
+                    onChange={e => setRuleForm(f => ({ ...f, service_id: e.target.value }))}
+                  >
+                    <option value="">Select service...</option>
+                    {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+              )}
+
+              {ruleForm.trigger_type === 'day_of_week' && (
+                <div>
+                  <label className="label">Day of Week *</label>
+                  <div className="grid grid-cols-7 gap-1">
+                    {['Su','Mo','Tu','We','Th','Fr','Sa'].map((d, i) => (
+                      <button
+                        key={i} type="button"
+                        onClick={() => setRuleForm(f => ({ ...f, day_of_week: String(i) }))}
+                        className={`py-2 rounded-lg text-xs font-bold transition-all ${ruleForm.day_of_week === String(i) ? 'bg-gold text-luma-black' : 'bg-luma-surface text-luma-muted hover:bg-gold/20'}`}
+                      >
+                        {d}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Points Multiplier</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number" step="0.5" min="1" max="10"
+                      className="input w-full"
+                      value={ruleForm.points_multiplier}
+                      onChange={e => setRuleForm(f => ({ ...f, points_multiplier: e.target.value }))}
+                    />
+                    <span className="text-sm text-luma-muted shrink-0">×</span>
+                  </div>
+                  <p className="text-xs text-luma-muted mt-1">e.g. 2× = double points</p>
+                </div>
+                <div>
+                  <label className="label">Bonus Points</label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-luma-muted shrink-0">+</span>
+                    <input
+                      type="number" min="0"
+                      className="input w-full"
+                      value={ruleForm.bonus_points}
+                      onChange={e => setRuleForm(f => ({ ...f, bonus_points: e.target.value }))}
+                    />
+                  </div>
+                  <p className="text-xs text-luma-muted mt-1">Extra flat points added</p>
+                </div>
+              </div>
+
+              <div className="bg-luma-surface rounded-xl p-3 text-xs text-luma-muted">
+                <span className="font-semibold text-luma-black">Preview: </span>
+                When triggered, client earns{' '}
+                {parseFloat(ruleForm.points_multiplier) > 1 ? <span className="text-gold font-semibold">{ruleForm.points_multiplier}× the normal points</span> : 'normal points'}
+                {parseInt(ruleForm.bonus_points) > 0 ? <> plus <span className="text-gold font-semibold">+{ruleForm.bonus_points} bonus points</span></> : ''}.
+              </div>
+
+              <div className="flex gap-3 pt-1">
+                <button type="button" onClick={() => setShowNewRule(false)} className="flex-1 py-2.5 border border-luma-border rounded-xl text-sm font-semibold hover:bg-luma-surface">Cancel</button>
+                <button type="submit" disabled={savingRule} className="flex-1 py-2.5 bg-luma-black text-white rounded-xl text-sm font-semibold hover:bg-gold transition-colors disabled:opacity-60">
+                  {savingRule ? 'Saving...' : 'Create Rule'}
                 </button>
               </div>
             </form>

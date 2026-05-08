@@ -44,13 +44,19 @@ export default function POSPage() {
   const [clientSearch, setClientSearch] = useState('')
   const [showClientSearch, setShowClientSearch] = useState(false)
   const [discountPct, setDiscountPct] = useState(0)
+  const [discountMode, setDiscountMode] = useState<'pct' | 'dollar'>('pct')
+  const [customDiscount, setCustomDiscount] = useState('')
+  const [useCustomDiscount, setUseCustomDiscount] = useState(false)
+  const [tipPreset, setTipPreset] = useState(0)       // 0 = no tip, 15/18/20/25 = preset %
+  const [customTip, setCustomTip] = useState('')
+  const [useCustomTip, setUseCustomTip] = useState(false)
   const [taxPct, setTaxPct] = useState(8.5)
   const [paymentMethod, setPaymentMethod] = useState('card')
   const [itemSearch, setItemSearch] = useState('')
   const [activeTab, setActiveTab] = useState<'services' | 'products'>('services')
   const [success, setSuccess] = useState(false)
   const [processing, setProcessing] = useState(false)
-  const [lastReceipt, setLastReceipt] = useState<{ total: number; client: string } | null>(null)
+  const [lastReceipt, setLastReceipt] = useState<{ total: number; tip: number; client: string } | null>(null)
 
   useEffect(() => {
     if (userId) {
@@ -99,11 +105,16 @@ export default function POSPage() {
   }
 
   const subtotal = cart.reduce((sum, c) => sum + c.price * c.qty, 0)
-  const discountAmt = subtotal * (discountPct / 100)
+  const discountAmt = useCustomDiscount
+    ? (discountMode === 'pct' ? subtotal * ((parseFloat(customDiscount) || 0) / 100) : Math.min(parseFloat(customDiscount) || 0, subtotal))
+    : subtotal * (discountPct / 100)
   const afterDiscount = subtotal - discountAmt
   const taxAmt = afterDiscount * (taxPct / 100)
-  const total = afterDiscount + taxAmt
-  const loyaltyPoints = Math.floor(total)
+  const tipAmt = useCustomTip
+    ? (parseFloat(customTip) || 0)
+    : afterDiscount * (tipPreset / 100)
+  const total = afterDiscount + taxAmt + tipAmt
+  const loyaltyPoints = Math.floor(afterDiscount + taxAmt) // points on pre-tip amount
 
   async function processPayment() {
     if (cart.length === 0) return
@@ -114,9 +125,10 @@ export default function POSPage() {
       owner_id: userId,
       client_id: selectedClient?.id || null,
       subtotal,
-      discount_pct: discountPct,
+      discount_pct: useCustomDiscount ? (discountMode === 'pct' ? parseFloat(customDiscount) || 0 : 0) : discountPct,
       discount_amt: discountAmt,
       tax: taxAmt,
+      tip_amount: tipAmt,
       total,
       payment_method: paymentMethod,
     }).select().single()
@@ -146,11 +158,16 @@ export default function POSPage() {
       }
     }
 
-    setLastReceipt({ total, client: selectedClient?.name || 'Walk-in' })
+    setLastReceipt({ total, tip: tipAmt, client: selectedClient?.name || 'Walk-in' })
     setSuccess(true)
     setCart([])
     setSelectedClient(null)
     setDiscountPct(0)
+    setCustomDiscount('')
+    setUseCustomDiscount(false)
+    setTipPreset(0)
+    setCustomTip('')
+    setUseCustomTip(false)
     setClientSearch('')
     setProcessing(false)
     fetchClients()
@@ -306,17 +323,83 @@ export default function POSPage() {
           {cart.length > 0 && (
             <div className="p-4 border-t border-luma-border space-y-3">
               {/* Discount */}
-              <div className="flex items-center gap-2">
-                <Tag size={14} className="text-luma-muted" />
-                <span className="text-sm text-luma-muted flex-1">Discount</span>
-                <div className="flex items-center gap-1">
-                  {[0, 5, 10, 15, 20].map(p => (
-                    <button key={p} onClick={() => setDiscountPct(p)}
-                      className={`px-2 py-0.5 rounded text-xs font-semibold transition-colors ${discountPct === p ? 'bg-gold text-white' : 'bg-white border border-luma-border text-luma-muted'}`}>
-                      {p}%
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <Tag size={14} className="text-luma-muted shrink-0" />
+                  <span className="text-sm text-luma-muted flex-1">Discount</span>
+                  <div className="flex items-center gap-1 flex-wrap justify-end">
+                    {[5, 10, 15, 20].map(p => (
+                      <button key={p} onClick={() => { setDiscountPct(p); setUseCustomDiscount(false) }}
+                        className={`px-2 py-0.5 rounded text-xs font-semibold transition-colors ${!useCustomDiscount && discountPct === p ? 'bg-gold text-white' : 'bg-white border border-luma-border text-luma-muted hover:border-gold/40'}`}>
+                        {p}%
+                      </button>
+                    ))}
+                    <button onClick={() => { setUseCustomDiscount(true); setDiscountPct(0) }}
+                      className={`px-2 py-0.5 rounded text-xs font-semibold transition-colors ${useCustomDiscount ? 'bg-luma-black text-white' : 'bg-white border border-luma-border text-luma-muted hover:border-gold/40'}`}>
+                      Custom
                     </button>
-                  ))}
+                    {(discountPct > 0 || useCustomDiscount) && (
+                      <button onClick={() => { setDiscountPct(0); setCustomDiscount(''); setUseCustomDiscount(false) }}
+                        className="text-luma-muted hover:text-red-500 ml-0.5"><X size={12} /></button>
+                    )}
+                  </div>
                 </div>
+                {useCustomDiscount && (
+                  <div className="flex items-center gap-2 pl-5">
+                    <div className="flex rounded-lg border border-luma-border overflow-hidden text-xs font-semibold">
+                      <button onClick={() => setDiscountMode('pct')}
+                        className={`px-2.5 py-1.5 transition-colors ${discountMode === 'pct' ? 'bg-luma-black text-white' : 'bg-white text-luma-muted'}`}>%</button>
+                      <button onClick={() => setDiscountMode('dollar')}
+                        className={`px-2.5 py-1.5 transition-colors ${discountMode === 'dollar' ? 'bg-luma-black text-white' : 'bg-white text-luma-muted'}`}>$</button>
+                    </div>
+                    <input
+                      type="number" min="0" step="0.01"
+                      autoFocus
+                      className="input py-1 text-sm w-24"
+                      placeholder={discountMode === 'pct' ? '0.00%' : '$0.00'}
+                      value={customDiscount}
+                      onChange={e => setCustomDiscount(e.target.value)}
+                    />
+                    {customDiscount && <span className="text-xs text-green-600 font-semibold">-${discountAmt.toFixed(2)} off</span>}
+                  </div>
+                )}
+              </div>
+
+              {/* Tip */}
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm shrink-0">🙏</span>
+                  <span className="text-sm text-luma-muted flex-1">Tip</span>
+                  <div className="flex items-center gap-1 flex-wrap justify-end">
+                    {[15, 18, 20, 25].map(p => (
+                      <button key={p} onClick={() => { setTipPreset(p); setUseCustomTip(false) }}
+                        className={`px-2 py-0.5 rounded text-xs font-semibold transition-colors ${!useCustomTip && tipPreset === p ? 'bg-gold text-white' : 'bg-white border border-luma-border text-luma-muted hover:border-gold/40'}`}>
+                        {p}%
+                      </button>
+                    ))}
+                    <button onClick={() => { setUseCustomTip(true); setTipPreset(0) }}
+                      className={`px-2 py-0.5 rounded text-xs font-semibold transition-colors ${useCustomTip ? 'bg-luma-black text-white' : 'bg-white border border-luma-border text-luma-muted hover:border-gold/40'}`}>
+                      Custom
+                    </button>
+                    {(tipPreset > 0 || useCustomTip) && (
+                      <button onClick={() => { setTipPreset(0); setCustomTip(''); setUseCustomTip(false) }}
+                        className="text-luma-muted hover:text-red-500 ml-0.5"><X size={12} /></button>
+                    )}
+                  </div>
+                </div>
+                {useCustomTip && (
+                  <div className="flex items-center gap-2 pl-5">
+                    <span className="text-sm text-luma-muted">$</span>
+                    <input
+                      type="number" min="0" step="0.01"
+                      autoFocus
+                      className="input py-1 text-sm w-24"
+                      placeholder="0.00"
+                      value={customTip}
+                      onChange={e => setCustomTip(e.target.value)}
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Tax */}
@@ -335,8 +418,9 @@ export default function POSPage() {
               {/* Summary */}
               <div className="bg-white rounded-xl p-3 space-y-1.5 text-sm">
                 <div className="flex justify-between text-luma-muted"><span>Subtotal</span><span>${subtotal.toFixed(2)}</span></div>
-                {discountPct > 0 && <div className="flex justify-between text-green-600"><span>Discount ({discountPct}%)</span><span>-${discountAmt.toFixed(2)}</span></div>}
+                {discountAmt > 0 && <div className="flex justify-between text-green-600"><span>Discount</span><span>-${discountAmt.toFixed(2)}</span></div>}
                 <div className="flex justify-between text-luma-muted"><span>Tax ({taxPct}%)</span><span>${taxAmt.toFixed(2)}</span></div>
+                {tipAmt > 0 && <div className="flex justify-between text-blue-600"><span>Tip</span><span>+${tipAmt.toFixed(2)}</span></div>}
                 <div className="flex justify-between font-bold text-luma-black text-base pt-1 border-t border-luma-border">
                   <span>Total</span><span>${total.toFixed(2)}</span>
                 </div>
@@ -372,7 +456,8 @@ export default function POSPage() {
               <CheckCircle size={32} className="text-green-600" />
             </div>
             <h2 className="text-xl font-bold text-luma-black mb-1">Payment Complete!</h2>
-            <p className="text-3xl font-bold text-gold mb-2">${lastReceipt.total.toFixed(2)}</p>
+            <p className="text-3xl font-bold text-gold mb-1">${lastReceipt.total.toFixed(2)}</p>
+            {lastReceipt.tip > 0 && <p className="text-sm text-blue-600 font-semibold mb-1">includes ${lastReceipt.tip.toFixed(2)} tip 🙏</p>}
             <p className="text-luma-muted text-sm mb-1">{lastReceipt.client}</p>
             {selectedClient && <p className="text-xs text-green-600 font-medium mb-4">+{loyaltyPoints} loyalty points earned</p>}
             <button onClick={() => setSuccess(false)} className="btn btn-primary w-full py-3">New Sale</button>
