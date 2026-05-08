@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/useAuth'
 import { supabase, Service } from '@/lib/supabase'
 import Topbar from '@/components/topbar'
-import { Save, Plus, Edit2, Trash2, X, AlertCircle, CheckCircle, Scissors, LogOut } from 'lucide-react'
+import { Save, Plus, Edit2, Trash2, X, AlertCircle, CheckCircle, Scissors, LogOut, Link2, Copy } from 'lucide-react'
 
 const emptyServiceForm = { name: '', price: 0, duration: 60, commission_rate: 40, active: true }
 
@@ -16,6 +16,9 @@ export default function SettingsPage() {
   const [serviceForm, setServiceForm] = useState(emptyServiceForm)
   const [saving, setSaving] = useState(false)
   const [savingProfile, setSavingProfile] = useState(false)
+  const [bookingLink, setBookingLink] = useState('')
+  const [cancelFee, setCancelFee] = useState('50')
+  const [copied, setCopied] = useState(false)
   const [error, setError] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
   const [deleteService, setDeleteService] = useState<Service | null>(null)
@@ -41,19 +44,24 @@ export default function SettingsPage() {
 
   async function loadProfile() {
     const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      const origin = typeof window !== 'undefined' ? window.location.origin : ''
+      setBookingLink(`${origin}/book?owner=${user.id}`)
+    }
     if (user?.user_metadata) {
       setSalonName(user.user_metadata.salon_name || '')
       setSalonPhone(user.user_metadata.salon_phone || '')
       setSalonAddress(user.user_metadata.salon_address || '')
       setTaxRate(user.user_metadata.tax_rate || '8.5')
       setTimezone(user.user_metadata.timezone || 'America/New_York')
+      setCancelFee(user.user_metadata.cancel_fee || '50')
     }
   }
 
   async function saveProfile() {
     setSavingProfile(true)
     await supabase.auth.updateUser({
-      data: { salon_name: salonName, salon_phone: salonPhone, salon_address: salonAddress, tax_rate: taxRate, timezone }
+      data: { salon_name: salonName, salon_phone: salonPhone, salon_address: salonAddress, tax_rate: taxRate, timezone, cancel_fee: cancelFee }
     })
     setSavingProfile(false)
     setSuccessMsg('Profile saved!')
@@ -205,6 +213,50 @@ export default function SettingsPage() {
                 </div>
               ))
             )}
+          </div>
+        </div>
+
+
+        {/* Booking Link */}
+        <div className="bg-white rounded-2xl border border-luma-border overflow-hidden">
+          <div className="px-6 py-4 border-b border-luma-border">
+            <h2 className="font-bold text-luma-black flex items-center gap-2"><Link2 size={16} className="text-gold" />Your Booking Link</h2>
+            <p className="text-sm text-luma-muted mt-0.5">Share this link on your website so clients can book online</p>
+          </div>
+          <div className="p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <div className="flex-1 input bg-luma-surface text-sm text-luma-muted truncate font-mono select-all">
+                {bookingLink || 'Loading...'}
+              </div>
+              <button
+                onClick={() => { navigator.clipboard.writeText(bookingLink); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+                className="btn btn-primary px-4 py-2 text-sm shrink-0 flex items-center gap-1.5"
+              >
+                <Copy size={13} />{copied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+            <p className="text-xs text-luma-muted">Add a "Book Now" button to your website and link it to this URL. Clients can pick services, choose a time, and confirm — all without logging in.</p>
+
+            <div className="border-t border-luma-border pt-4">
+              <h3 className="text-sm font-semibold text-luma-black mb-3">Cancellation Policy</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Cancellation Window</label>
+                  <div className="input bg-luma-surface text-luma-muted text-sm cursor-not-allowed">72 hours</div>
+                  <p className="text-xs text-luma-muted mt-1">Fixed at 72 hours before appointment</p>
+                </div>
+                <div>
+                  <label className="label">Late Cancellation Fee ($)</label>
+                  <input className="input" type="number" min="0" value={cancelFee} onChange={e => setCancelFee(e.target.value)} placeholder="50" />
+                  <p className="text-xs text-luma-muted mt-1">Charged when Stripe is connected</p>
+                </div>
+              </div>
+              <div className="mt-3 flex justify-end">
+                <button onClick={saveProfile} className="btn btn-primary px-4 py-2 text-sm">
+                  <Save size={13} className="inline mr-1.5" />Save Policy
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
