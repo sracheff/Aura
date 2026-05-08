@@ -86,6 +86,9 @@ function BookingPageInner() {
   const [referrerName, setReferrerName] = useState('')
   const [lookingUpReferrer, setLookingUpReferrer] = useState(false)
 
+  // Source tracking
+  const [source, setSource] = useState('')
+
   const totalPrice = selectedServices.reduce((s, sv) => s + sv.price * sv.qty, 0)
   const totalDuration = selectedServices.reduce((s, sv) => s + sv.duration * sv.qty, 0)
   const totalMins = `${Math.floor(totalDuration / 60) > 0 ? Math.floor(totalDuration / 60) + 'h ' : ''}${totalDuration % 60 > 0 ? (totalDuration % 60) + 'm' : ''}`
@@ -215,8 +218,12 @@ function BookingPageInner() {
         name: form.name,
         email: form.email,
         phone: form.phone,
+        source: source || null,
       }).select('id').single()
       clientId = newClient?.id || null
+    } else if (source && existingClient?.id) {
+      // Update source on existing client only if not already set
+      await supabase.from('clients').update({ source }).eq('id', existingClient.id).is('source', null)
     }
 
     // Create appointment (service_name = joined names, price/duration = totals)
@@ -231,6 +238,7 @@ function BookingPageInner() {
       price: totalPrice,
       status: 'confirmed',
       notes: form.notes || null,
+      source: source || null,
     }).select('id').single()
 
     // Insert appointment_services
@@ -565,8 +573,35 @@ function BookingPageInner() {
               <textarea className="input min-h-[80px] resize-none" placeholder="Anything your stylist should know..." value={form.notes} onChange={e => setForm(f => ({...f, notes: e.target.value}))} />
             </div>
 
-            {/* Referral field */}
+            {/* How did you find us? */}
             <div className="border-t border-luma-border pt-4">
+              <label className="label">How did you find us? (optional)</label>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { value: 'Instagram',  label: 'Instagram',  emoji: '📸', color: source === 'Instagram'  ? 'bg-pink-500 text-white border-pink-500'    : 'bg-white border-luma-border text-luma-muted hover:border-pink-300' },
+                  { value: 'Facebook',   label: 'Facebook',   emoji: '👍', color: source === 'Facebook'   ? 'bg-blue-600 text-white border-blue-600'    : 'bg-white border-luma-border text-luma-muted hover:border-blue-300' },
+                  { value: 'TikTok',     label: 'TikTok',     emoji: '🎵', color: source === 'TikTok'     ? 'bg-gray-900 text-white border-gray-900'    : 'bg-white border-luma-border text-luma-muted hover:border-gray-400' },
+                  { value: 'Threads',    label: 'Threads',    emoji: '🧵', color: source === 'Threads'    ? 'bg-gray-800 text-white border-gray-800'    : 'bg-white border-luma-border text-luma-muted hover:border-gray-400' },
+                  { value: 'Google',     label: 'Google',     emoji: '🔍', color: source === 'Google'     ? 'bg-blue-500 text-white border-blue-500'    : 'bg-white border-luma-border text-luma-muted hover:border-blue-300' },
+                  { value: 'Referral',   label: 'A Friend',   emoji: '🤝', color: source === 'Referral'   ? 'bg-gold text-luma-black border-gold'       : 'bg-white border-luma-border text-luma-muted hover:border-yellow-300' },
+                  { value: 'Walk-by',    label: 'Walked by',  emoji: '🚶', color: source === 'Walk-by'    ? 'bg-green-500 text-white border-green-500'  : 'bg-white border-luma-border text-luma-muted hover:border-green-300' },
+                  { value: 'Other',      label: 'Other',      emoji: '💬', color: source === 'Other'      ? 'bg-luma-black text-white border-luma-black': 'bg-white border-luma-border text-luma-muted hover:border-luma-muted' },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setSource(prev => prev === opt.value ? '' : opt.value)}
+                    className={`flex flex-col items-center gap-1 py-2.5 px-1 rounded-xl border-2 text-xs font-semibold transition-all ${opt.color}`}
+                  >
+                    <span className="text-lg leading-none">{opt.emoji}</span>
+                    <span>{opt.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Referral field — only shown when "A Friend" is selected or ?ref= param */}
+            <div className={`border-t border-luma-border pt-4 ${source !== 'Referral' && !refParam ? 'hidden' : ''}`}>
               <label className="label">Were you referred by someone? (optional)</label>
               {refParam && referrerName ? (
                 <div className="flex items-center gap-2 px-3 py-2.5 bg-green-50 border border-green-200 rounded-xl text-sm">

@@ -23,6 +23,7 @@ export default function ReportsPage() {
   const [staffStats, setStaffStats] = useState<StaffStat[]>([])
   const [dayRevenue, setDayRevenue] = useState<DayRevenue[]>([])
   const [summary, setSummary] = useState({ revenue: 0, transactions: 0, avgTicket: 0, newClients: 0 })
+  const [sourceStats, setSourceStats] = useState<{ source: string; count: number }[]>([])
   const [loadingData, setLoadingData] = useState(false)
 
   useEffect(() => {
@@ -107,6 +108,25 @@ export default function ReportsPage() {
         staffMap[name].appointments += 1
       })
       setStaffStats(Object.entries(staffMap).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.revenue - a.revenue))
+    }
+
+    // Source stats from appointments
+    const { data: sourceData } = await supabase
+      .from('appointments')
+      .select('source')
+      .eq('owner_id', userId)
+      .gte('start_time', start)
+      .not('source', 'is', null)
+    if (sourceData) {
+      const srcMap: Record<string, number> = {}
+      sourceData.forEach((a: { source: string | null }) => {
+        if (a.source) srcMap[a.source] = (srcMap[a.source] || 0) + 1
+      })
+      setSourceStats(
+        Object.entries(srcMap)
+          .map(([source, count]) => ({ source, count }))
+          .sort((a, b) => b.count - a.count)
+      )
     }
 
     setLoadingData(false)
@@ -208,6 +228,43 @@ export default function ReportsPage() {
             )}
           </div>
         </div>
+
+        {/* Booking Sources */}
+        {sourceStats.length > 0 && (
+          <div className="bg-white rounded-2xl p-5 border border-luma-border">
+            <h3 className="font-bold text-luma-black mb-4">How Clients Found You</h3>
+            <div className="space-y-3">
+              {(() => {
+                const total = sourceStats.reduce((s, r) => s + r.count, 0)
+                const SOURCE_STYLE: Record<string, { emoji: string; bar: string }> = {
+                  Instagram: { emoji: '📸', bar: 'bg-pink-400' },
+                  Facebook:  { emoji: '👍', bar: 'bg-blue-500' },
+                  TikTok:    { emoji: '🎵', bar: 'bg-gray-800' },
+                  Threads:   { emoji: '🧵', bar: 'bg-gray-600' },
+                  Google:    { emoji: '🔍', bar: 'bg-blue-400' },
+                  Referral:  { emoji: '🤝', bar: 'bg-yellow-400' },
+                  'Walk-by': { emoji: '🚶', bar: 'bg-green-400' },
+                  Other:     { emoji: '💬', bar: 'bg-gray-300' },
+                }
+                return sourceStats.map(s => {
+                  const pct = Math.round((s.count / total) * 100)
+                  const style = SOURCE_STYLE[s.source] || { emoji: '💬', bar: 'bg-gray-300' }
+                  return (
+                    <div key={s.source} className="flex items-center gap-3">
+                      <span className="text-base w-6 text-center">{style.emoji}</span>
+                      <div className="w-24 shrink-0 text-sm font-medium text-luma-black">{s.source}</div>
+                      <div className="flex-1 h-2 bg-luma-surface rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${style.bar}`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <div className="text-xs text-luma-muted w-20 text-right">{s.count} booking{s.count !== 1 ? 's' : ''} · {pct}%</div>
+                    </div>
+                  )
+                })
+              })()}
+            </div>
+            <p className="text-xs text-luma-muted mt-4">Based on {sourceStats.reduce((s, r) => s + r.count, 0)} bookings where clients answered "How did you find us?"</p>
+          </div>
+        )}
 
         {/* Staff Performance */}
         {staffStats.length > 0 && (
