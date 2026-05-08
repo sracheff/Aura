@@ -22,16 +22,29 @@ export default function LoginPage() {
     setLoading(true)
 
     if (mode === 'login') {
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) {
         setError(error.message)
       } else {
-        router.push('/dashboard')
+        // Check if onboarding is complete
+        const { data: salon } = await supabase
+          .from('salons')
+          .select('onboarding_complete')
+          .eq('owner_id', data.user.id)
+          .single()
+        if (!salon?.onboarding_complete) {
+          router.push('/onboarding')
+        } else {
+          router.push('/dashboard')
+        }
       }
     } else {
-      const { error } = await supabase.auth.signUp({ email, password })
+      const { data, error } = await supabase.auth.signUp({ email, password })
       if (error) {
         setError(error.message)
+      } else if (data.session) {
+        // Auto-confirmed (email confirm disabled) — go to onboarding
+        router.push('/onboarding')
       } else {
         setSuccess('Account created! Check your email to confirm, then sign in.')
         setMode('login')

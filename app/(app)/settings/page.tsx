@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/useAuth'
 import { supabase, Service } from '@/lib/supabase'
 import Topbar from '@/components/topbar'
-import { Save, Plus, Edit2, Trash2, X, AlertCircle, CheckCircle, Scissors, LogOut, Link2, Copy } from 'lucide-react'
+import { Save, Plus, Edit2, Trash2, X, AlertCircle, CheckCircle, Scissors, LogOut, Link2, Copy, CreditCard, Zap, Crown } from 'lucide-react'
 
 const emptyServiceForm = { name: '', price: 0, duration: 60, commission_rate: 40, active: true }
 
@@ -31,12 +31,50 @@ export default function SettingsPage() {
   const [timezone, setTimezone] = useState('America/New_York')
   const [googleReviewUrl, setGoogleReviewUrl] = useState('')
 
+  // Billing
+  const [salon, setSalon] = useState<any>(null)
+  const [billingLoading, setBillingLoading] = useState(false)
+
   useEffect(() => {
     if (userId) {
       fetchServices()
       loadProfile()
+      loadBilling()
     }
   }, [userId])
+
+  async function loadBilling() {
+    const { data } = await supabase.from('salons').select('*').eq('owner_id', userId).single()
+    if (data) setSalon(data)
+  }
+
+  async function handleUpgrade(plan: string) {
+    setBillingLoading(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const res = await fetch('/api/stripe/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan, userId: user.id, email: user.email }),
+    })
+    const { url, error } = await res.json()
+    if (url) window.location.href = url
+    else { setError(error || 'Billing error'); setBillingLoading(false) }
+  }
+
+  async function handleManageBilling() {
+    setBillingLoading(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const res = await fetch('/api/stripe/portal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: user.id }),
+    })
+    const { url, error } = await res.json()
+    if (url) window.location.href = url
+    else { setError(error || 'Billing error'); setBillingLoading(false) }
+  }
 
   async function fetchServices() {
     const { data } = await supabase.from('services').select('*').eq('owner_id', userId).order('name')
@@ -265,6 +303,104 @@ export default function SettingsPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Billing */}
+        <div className="bg-white rounded-2xl border border-luma-border overflow-hidden">
+          <div className="px-6 py-4 border-b border-luma-border">
+            <h2 className="font-bold text-luma-black flex items-center gap-2"><CreditCard size={16} className="text-gold" />Plan & Billing</h2>
+            <p className="text-sm text-luma-muted mt-0.5">Manage your subscription</p>
+          </div>
+          <div className="p-6">
+            {/* Current plan status */}
+            {salon && (
+              <div className={`flex items-center justify-between p-4 rounded-xl border mb-6 ${
+                salon.plan === 'pro' ? 'bg-gold/5 border-gold/30' :
+                salon.plan === 'starter' ? 'bg-blue-50 border-blue-200' :
+                salon.subscription_status === 'cancelled' ? 'bg-red-50 border-red-200' :
+                'bg-green-50 border-green-200'
+              }`}>
+                <div className="flex items-center gap-3">
+                  {salon.plan === 'pro' ? <Crown size={20} className="text-gold" /> :
+                   salon.plan === 'starter' ? <Zap size={20} className="text-blue-500" /> :
+                   <CreditCard size={20} className="text-green-600" />}
+                  <div>
+                    <p className="font-bold text-luma-black capitalize">
+                      {salon.plan === 'trial' ? 'Free Trial' : salon.plan === 'cancelled' ? 'Cancelled' : `${salon.plan} Plan`}
+                    </p>
+                    <p className="text-xs text-luma-muted">
+                      {salon.plan === 'trial'
+                        ? `Trial ends ${new Date(salon.trial_ends_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                        : salon.current_period_end
+                          ? `Renews ${new Date(salon.current_period_end).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                          : salon.subscription_status}
+                    </p>
+                  </div>
+                </div>
+                {salon.stripe_subscription_id && (
+                  <button onClick={handleManageBilling} disabled={billingLoading}
+                    className="btn bg-luma-surface text-luma-black text-sm px-4 py-2 disabled:opacity-60">
+                    {billingLoading ? 'Loading...' : 'Manage'}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Upgrade options — show if on trial or starter */}
+            {salon && (salon.plan === 'trial' || salon.plan === 'starter' || salon.plan === 'cancelled') && (
+              <div className="grid grid-cols-2 gap-4">
+                {/* Starter */}
+                {salon.plan !== 'starter' && (
+                  <div className="border border-luma-border rounded-xl p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Zap size={16} className="text-blue-500" />
+                      <span className="font-bold text-luma-black">Starter</span>
+                    </div>
+                    <p className="text-2xl font-bold text-luma-black mb-1">$39<span className="text-sm font-normal text-luma-muted">/mo</span></p>
+                    <ul className="text-xs text-luma-muted space-y-1 mb-4">
+                      <li>✓ Up to 5 staff members</li>
+                      <li>✓ Online booking page</li>
+                      <li>✓ POS & inventory</li>
+                      <li>✓ Client management</li>
+                      <li>✓ Basic reports</li>
+                    </ul>
+                    <button onClick={() => handleUpgrade('starter')} disabled={billingLoading}
+                      className="w-full btn bg-luma-surface text-luma-black text-sm py-2 disabled:opacity-60">
+                      {billingLoading ? 'Loading...' : 'Choose Starter'}
+                    </button>
+                  </div>
+                )}
+
+                {/* Pro */}
+                <div className={`border rounded-xl p-4 relative ${salon.plan !== 'starter' ? 'border-gold' : 'border-luma-border'}`}>
+                  {salon.plan !== 'starter' && (
+                    <div className="absolute -top-2.5 left-4 bg-gold text-luma-black text-xs font-bold px-2 py-0.5 rounded-full">Most Popular</div>
+                  )}
+                  <div className="flex items-center gap-2 mb-2">
+                    <Crown size={16} className="text-gold" />
+                    <span className="font-bold text-luma-black">Pro</span>
+                  </div>
+                  <p className="text-2xl font-bold text-luma-black mb-1">$89<span className="text-sm font-normal text-luma-muted">/mo</span></p>
+                  <ul className="text-xs text-luma-muted space-y-1 mb-4">
+                    <li>✓ Unlimited staff</li>
+                    <li>✓ SMS reminders (Twilio)</li>
+                    <li>✓ AI Business Coach</li>
+                    <li>✓ Advanced reports & P&L</li>
+                    <li>✓ Review requests</li>
+                    <li>✓ Priority support</li>
+                  </ul>
+                  <button onClick={() => handleUpgrade('pro')} disabled={billingLoading}
+                    className="w-full btn btn-primary text-sm py-2 disabled:opacity-60">
+                    {billingLoading ? 'Loading...' : 'Choose Pro'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {salon?.plan === 'pro' && (
+              <p className="text-sm text-luma-muted text-center">You&apos;re on the Pro plan — all features unlocked. <button onClick={handleManageBilling} className="text-gold hover:underline">Manage billing →</button></p>
+            )}
           </div>
         </div>
 
