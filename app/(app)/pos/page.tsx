@@ -8,6 +8,7 @@ import {
   ShoppingCart, Plus, Minus, Trash2, Search,
   CreditCard, Banknote, Smartphone, CheckCircle, X,
   Tag, Percent, User, Split, Gift, CalendarDays, RotateCcw, AlertCircle,
+  FlaskConical,
 } from 'lucide-react'
 
 type CartItem = {
@@ -73,6 +74,9 @@ export default function POSPage() {
   // Transaction history + refunds
   const [recentTx, setRecentTx] = useState<{ id: string; total: number; client_id: string | null; payment_method: string; created_at: string; refunded_at: string | null }[]>([])
   const [showHistory, setShowHistory] = useState(false)
+  // Formula deduction at checkout
+  const [clientFormulas, setClientFormulas] = useState<any[]>([])
+  const [selectedFormulaId, setSelectedFormulaId] = useState('')
 
   useEffect(() => {
     if (userId) {
@@ -123,6 +127,25 @@ export default function POSPage() {
       setTimeout(() => clearInterval(interval), 5000)
     }
   }, [userId])
+
+  // Load formulas whenever the selected client changes
+  useEffect(() => {
+    if (selectedClient && userId) {
+      supabase
+        .from('client_formulas')
+        .select('id, service_name, applied_at, products_used')
+        .eq('client_id', selectedClient.id)
+        .eq('owner_id', userId)
+        .order('applied_at', { ascending: false })
+        .then(({ data }) => {
+          setClientFormulas(data || [])
+          setSelectedFormulaId('')
+        })
+    } else {
+      setClientFormulas([])
+      setSelectedFormulaId('')
+    }
+  }, [selectedClient, userId])
 
   async function fetchServices() {
     const { data } = await supabase.from('services').select('*').eq('owner_id', userId).eq('active', true).order('name')
@@ -282,11 +305,34 @@ export default function POSPage() {
       }).eq('id', selectedClient.id)
     }
 
-    // Deduct product inventory
+    // Deduct product inventory (retail products added to cart)
     for (const item of cart.filter(c => c.type === 'product')) {
       const product = products.find(p => p.id === item.id)
       if (product) {
         await supabase.from('products').update({ qty: Math.max(0, product.qty - item.qty) }).eq('id', item.id)
+      }
+    }
+
+    // Deduct formula products (backbar used during service)
+    if (selectedFormulaId) {
+      const formula = clientFormulas.find(f => f.id === selectedFormulaId)
+      if (formula?.products_used?.length > 0) {
+        for (const p of formula.products_used) {
+          if (!p.product_id || !p.amount) continue
+          const amt = parseFloat(p.amount) || 0
+          if (amt <= 0) continue
+          const { data: prod } = await supabase
+            .from('products')
+            .select('qty, tube_size, tube_size_unit')
+            .eq('id', p.product_id)
+            .single()
+          if (prod) {
+            let deductAmt = amt
+            const tubeSize = parseFloat(prod.tube_size) || 0
+            if (tubeSize > 0) deductAmt = amt / tubeSize
+            await supabase.from('products').update({ qty: Math.max(0, (prod.qty || 0) - deductAmt) }).eq('id', p.product_id)
+          }
+        }
       }
     }
 
@@ -305,6 +351,8 @@ export default function POSPage() {
     setGcData(null)
     setSplitCash('')
     setSplitCard('')
+    setSelectedFormulaId('')
+    setClientFormulas([])
     setProcessing(false)
     fetchClients()
     fetchProducts()
@@ -466,6 +514,45 @@ export default function POSPage() {
               ))
             )}
           </div>
+
+          {/* Formula deduction selector */}
+          {selectedClient && clientFormulas.length > 0 && (
+            <div className="px-4 py-3 border-t border-luma-border">
+              <div className="flex items-center gap-2 mb-2">
+                <FlaskConical size={14} className="text-gold shrink-0" />
+                <span className="text-xs font-semibold text-luma-black">Deduct Formula</span>
+                <span className="text-xs text-luma-muted">(optional)</span>
+              </div>
+              <select
+                className="input text-sm py-1.5 w-full"
+                value={selectedFormulaId}
+                onChange={e => setSelectedFormulaId(e.target.value)}
+              >
+                <option value="">— No formula this visit —</option>
+                {clientFormulas.map(f => (
+                  <option key={f.id} value={f.id}>
+                    {f.service_name} · {f.applied_at}
+                  </option>
+                ))}
+              </select>
+              {selectedFormulaId && (() => {
+                const f = clientFormulas.find(x => x.id === selectedFormulaId)
+                const prods = f?.products_used || []
+                if (!prods.length) return null
+                return (
+                  <div className="mt-2 px-2.5 py-2 bg-gold/10 rounded-xl text-xs text-luma-black space-y-0.5">
+                    <p className="font-semibold text-gold mb-1">Will deduct on checkout:</p>
+                    {prods.map((p: any, i: number) => (
+                      <div key={i} className="flex justify-between">
+                        <span>{p.product_name}</span>
+                        <span className="text-luma-muted">{p.amount} {p.unit}</span>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+            </div>
+          )}
 
           {/* Totals + checkout */}
           {cart.length > 0 && (
