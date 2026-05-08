@@ -7,8 +7,9 @@ import Topbar from '@/components/topbar'
 import {
   Users, Plus, Search, Star, ChevronRight,
   Mail, Phone, Calendar, DollarSign, Gift,
-  X, Edit2, Trash2, AlertCircle, Crown, Award, Gem
-, ExternalLink, Copy } from 'lucide-react'
+  X, Edit2, Trash2, AlertCircle, Crown, Award, Gem,
+  ExternalLink, Copy, FlaskConical, ChevronDown, ChevronUp, Save
+} from 'lucide-react'
 
 const TIERS = ['Bronze', 'Silver', 'Gold', 'Diamond']
 
@@ -31,6 +32,12 @@ const emptyForm = {
   tier: 'Bronze', points: 0, total_spend: 0, visits: 0, referrals: 0
 }
 
+const emptyFormula = {
+  service_name: '', formula: '', developer: '', process_time: '', notes: '',
+  applied_at: new Date().toISOString().split('T')[0],
+  products_used: [] as { product_id: string; product_name: string; amount: string; unit: string }[]
+}
+
 export default function ClientsPage() {
   const { userId, loading } = useAuth()
   const [clients, setClients] = useState<Client[]>([])
@@ -44,9 +51,30 @@ export default function ClientsPage() {
   const [error, setError] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState(false)
 
+  // Formulas
+  const [formulas, setFormulas] = useState<any[]>([])
+  const [showFormulaModal, setShowFormulaModal] = useState(false)
+  const [editFormula, setEditFormula] = useState<any | null>(null)
+  const [formulaForm, setFormulaForm] = useState(emptyFormula)
+  const [savingFormula, setSavingFormula] = useState(false)
+  const [formulaError, setFormulaError] = useState('')
+  const [expandedFormula, setExpandedFormula] = useState<string | null>(null)
+  const [products, setProducts] = useState<any[]>([])
+  const [clientTab, setClientTab] = useState<'overview' | 'formulas'>('overview')
+
   useEffect(() => {
-    if (userId) fetchClients()
+    if (userId) {
+      fetchClients()
+      fetchProducts()
+    }
   }, [userId])
+
+  useEffect(() => {
+    if (selected) {
+      fetchFormulas(selected.id)
+      setClientTab('overview')
+    }
+  }, [selected])
 
   async function fetchClients() {
     const { data } = await supabase
@@ -55,6 +83,106 @@ export default function ClientsPage() {
       .eq('owner_id', userId)
       .order('name')
     if (data) setClients(data)
+  }
+
+  async function fetchProducts() {
+    const { data } = await supabase.from('products').select('id, name, brand, qty').eq('owner_id', userId).order('name')
+    if (data) setProducts(data)
+  }
+
+  async function fetchFormulas(clientId: string) {
+    const { data } = await supabase.from('client_formulas').select('*').eq('client_id', clientId).order('applied_at', { ascending: false })
+    if (data) setFormulas(data)
+  }
+
+  function openAddFormula() {
+    setFormulaForm({ ...emptyFormula, applied_at: new Date().toISOString().split('T')[0] })
+    setEditFormula(null)
+    setFormulaError('')
+    setShowFormulaModal(true)
+  }
+
+  function openEditFormula(f: any) {
+    setFormulaForm({
+      service_name: f.service_name, formula: f.formula, developer: f.developer || '',
+      process_time: f.process_time || '', notes: f.notes || '',
+      applied_at: f.applied_at || new Date().toISOString().split('T')[0],
+      products_used: f.products_used || [],
+    })
+    setEditFormula(f)
+    setFormulaError('')
+    setShowFormulaModal(true)
+  }
+
+  async function saveFormula() {
+    if (!formulaForm.service_name.trim()) { setFormulaError('Service name is required'); return }
+    if (!formulaForm.formula.trim()) { setFormulaError('Formula is required'); return }
+    if (!selected) return
+    setSavingFormula(true)
+    setFormulaError('')
+
+    const payload = {
+      ...formulaForm,
+      client_id: selected.id,
+      owner_id: userId,
+    }
+
+    let savedOk = false
+    if (editFormula) {
+      const { error } = await supabase.from('client_formulas').update(payload).eq('id', editFormula.id)
+      savedOk = !error
+    } else {
+      const { error } = await supabase.from('client_formulas').insert(payload)
+      savedOk = !error
+    }
+
+    // Deduct inventory for each product used
+    if (savedOk && formulaForm.products_used.length > 0) {
+      for (const p of formulaForm.products_used) {
+        if (!p.product_id || !p.amount) continue
+        const amt = parseFloat(p.amount) || 0
+        if (amt <= 0) continue
+        // Fetch current qty
+        const { data: prod } = await supabase.from('products').select('qty').eq('id', p.product_id).single()
+        if (prod) {
+          const newQty = Math.max(0, (prod.qty || 0) - amt)
+          await supabase.from('products').update({ qty: newQty }).eq('id', p.product_id)
+        }
+      }
+    }
+
+    setSavingFormula(false)
+    setShowFormulaModal(false)
+    fetchFormulas(selected.id)
+    fetchProducts() // Refresh product quantities
+  }
+
+  async function deleteFormula(id: string) {
+    if (!selected) return
+    await supabase.from('client_formulas').delete().eq('id', id)
+    fetchFormulas(selected.id)
+  }
+
+  function addProductRow() {
+    setFormulaForm(f => ({ ...f, products_used: [...f.products_used, { product_id: '', product_name: '', amount: '', unit: 'oz' }] }))
+  }
+
+  function removeProductRow(i: number) {
+    setFormulaForm(f => ({ ...f, products_used: f.products_used.filter((_, idx) => idx !== i) }))
+  }
+
+  function updateProductRow(i: number, field: string, val: string) {
+    setFormulaForm(f => ({
+      ...f,
+      products_used: f.products_used.map((p, idx) => {
+        if (idx !== i) return p
+        if (field === 'product_id') {
+          const prod = products.find(pr => pr.id === val)
+          return { ...p, product_id: val, product_name: prod?.name || '' }
+        }
+        return { ...p, [field]: val }
+      })
+    }))
   }
 
   const filtered = clients.filter(c => {
@@ -261,7 +389,80 @@ export default function ClientsPage() {
               </div>
             </div>
 
+            {/* Tab switcher */}
+            <div className="flex border-b border-luma-border px-6">
+              {(['overview', 'formulas'] as const).map(tab => (
+                <button key={tab} onClick={() => setClientTab(tab)}
+                  className={`px-4 py-3 text-sm font-semibold capitalize transition-colors border-b-2 -mb-px ${
+                    clientTab === tab ? 'border-gold text-gold' : 'border-transparent text-luma-muted hover:text-luma-black'
+                  }`}>
+                  {tab === 'formulas' ? `💊 Formulas (${formulas.length})` : '👤 Overview'}
+                </button>
+              ))}
+            </div>
+
             <div className="flex-1 overflow-y-auto p-6 space-y-5">
+              {clientTab === 'formulas' && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-sm text-luma-black flex items-center gap-1.5"><FlaskConical size={14} className="text-gold" />Color Formulas</h3>
+                    <button onClick={openAddFormula} className="btn btn-primary px-3 py-1.5 text-xs flex items-center gap-1">
+                      <Plus size={13} /> Add Formula
+                    </button>
+                  </div>
+                  {formulas.length === 0 ? (
+                    <div className="text-center py-10 text-luma-muted">
+                      <FlaskConical size={32} className="mx-auto mb-2 opacity-30" />
+                      <p className="text-sm">No formulas saved yet</p>
+                      <button onClick={openAddFormula} className="btn btn-primary mt-3 text-xs px-4 py-2">Add First Formula</button>
+                    </div>
+                  ) : (
+                    formulas.map(f => (
+                      <div key={f.id} className="bg-luma-surface rounded-xl border border-luma-border overflow-hidden">
+                        <div className="flex items-center justify-between p-3 cursor-pointer" onClick={() => setExpandedFormula(expandedFormula === f.id ? null : f.id)}>
+                          <div>
+                            <p className="font-semibold text-sm text-luma-black">{f.service_name}</p>
+                            <p className="text-xs text-luma-muted">{f.applied_at ? new Date(f.applied_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button onClick={e => { e.stopPropagation(); openEditFormula(f) }} className="p-1.5 rounded-lg hover:bg-luma-border text-luma-muted hover:text-luma-black transition-colors"><Edit2 size={13} /></button>
+                            <button onClick={e => { e.stopPropagation(); deleteFormula(f.id) }} className="p-1.5 rounded-lg hover:bg-red-50 text-luma-muted hover:text-red-500 transition-colors"><Trash2 size={13} /></button>
+                            {expandedFormula === f.id ? <ChevronUp size={14} className="text-luma-muted" /> : <ChevronDown size={14} className="text-luma-muted" />}
+                          </div>
+                        </div>
+                        {expandedFormula === f.id && (
+                          <div className="px-3 pb-3 border-t border-luma-border pt-3 space-y-2 text-xs">
+                            <div className="bg-white rounded-lg p-2.5">
+                              <p className="text-luma-muted font-medium mb-0.5">Formula</p>
+                              <p className="text-luma-black font-mono">{f.formula}</p>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              {f.developer && <div className="bg-white rounded-lg p-2"><p className="text-luma-muted">Developer</p><p className="font-semibold text-luma-black">{f.developer}</p></div>}
+                              {f.process_time && <div className="bg-white rounded-lg p-2"><p className="text-luma-muted">Process Time</p><p className="font-semibold text-luma-black">{f.process_time}</p></div>}
+                            </div>
+                            {f.products_used?.length > 0 && (
+                              <div className="bg-white rounded-lg p-2.5">
+                                <p className="text-luma-muted font-medium mb-1.5">Products Used</p>
+                                <div className="space-y-1">
+                                  {f.products_used.map((p: any, i: number) => (
+                                    <div key={i} className="flex justify-between text-luma-black">
+                                      <span>{p.product_name}</span>
+                                      <span className="text-luma-muted">{p.amount} {p.unit}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {f.notes && <div className="bg-white rounded-lg p-2"><p className="text-luma-muted">Notes</p><p className="text-luma-black">{f.notes}</p></div>}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {clientTab === 'overview' && <>
               {/* Stats */}
               <div className="grid grid-cols-3 gap-3">
                 {[
@@ -313,6 +514,7 @@ export default function ClientsPage() {
                   <p className="text-sm text-luma-muted">{selected.notes}</p>
                 </div>
               )}
+              </>}
             </div>
 
             {/* Delete confirm */}
@@ -328,6 +530,83 @@ export default function ClientsPage() {
           </div>
         )}
       </div>
+
+      {/* Formula Modal */}
+      {showFormulaModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-5 border-b border-luma-border sticky top-0 bg-white z-10">
+              <h2 className="font-bold text-luma-black flex items-center gap-2"><FlaskConical size={16} className="text-gold" />{editFormula ? 'Edit Formula' : 'New Formula'}</h2>
+              <button onClick={() => setShowFormulaModal(false)} className="p-2 hover:bg-luma-surface rounded-lg text-luma-muted"><X size={18} /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              {formulaError && <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm"><AlertCircle size={14} />{formulaError}</div>}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Service / Treatment *</label>
+                  <input className="input" value={formulaForm.service_name} onChange={e => setFormulaForm(f => ({ ...f, service_name: e.target.value }))} placeholder="Root Color, Highlights..." />
+                </div>
+                <div>
+                  <label className="label">Date Applied</label>
+                  <input className="input" type="date" value={formulaForm.applied_at} onChange={e => setFormulaForm(f => ({ ...f, applied_at: e.target.value }))} />
+                </div>
+              </div>
+              <div>
+                <label className="label">Formula *</label>
+                <textarea className="input min-h-[80px] font-mono text-sm resize-none" value={formulaForm.formula} onChange={e => setFormulaForm(f => ({ ...f, formula: e.target.value }))} placeholder="e.g. 6N + 1oz 20vol + 10g Olaplex No.1" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Developer</label>
+                  <select className="input" value={formulaForm.developer} onChange={e => setFormulaForm(f => ({ ...f, developer: e.target.value }))}>
+                    <option value="">Select...</option>
+                    {['10 vol', '20 vol', '30 vol', '40 vol', 'N/A'].map(d => <option key={d}>{d}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Processing Time</label>
+                  <input className="input" value={formulaForm.process_time} onChange={e => setFormulaForm(f => ({ ...f, process_time: e.target.value }))} placeholder="e.g. 45 min" />
+                </div>
+              </div>
+
+              {/* Products used — auto-deduct inventory */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="label mb-0">Products Used <span className="text-xs font-normal text-luma-muted">(auto-deducts inventory on save)</span></label>
+                  <button type="button" onClick={addProductRow} className="text-xs text-gold font-semibold flex items-center gap-1 hover:opacity-80"><Plus size={12} /> Add</button>
+                </div>
+                {formulaForm.products_used.length === 0 && (
+                  <p className="text-xs text-luma-muted italic">No products added yet</p>
+                )}
+                {formulaForm.products_used.map((p, i) => (
+                  <div key={i} className="flex gap-2 items-center mb-2">
+                    <select className="input flex-1 text-sm" value={p.product_id} onChange={e => updateProductRow(i, 'product_id', e.target.value)}>
+                      <option value="">Select product...</option>
+                      {products.map(pr => <option key={pr.id} value={pr.id}>{pr.name} {pr.brand ? `(${pr.brand})` : ''} — {pr.qty} in stock</option>)}
+                    </select>
+                    <input className="input w-16 text-sm" value={p.amount} onChange={e => updateProductRow(i, 'amount', e.target.value)} placeholder="Amt" />
+                    <select className="input w-16 text-sm" value={p.unit} onChange={e => updateProductRow(i, 'unit', e.target.value)}>
+                      {['oz', 'g', 'ml', 'tbsp', 'tsp'].map(u => <option key={u}>{u}</option>)}
+                    </select>
+                    <button onClick={() => removeProductRow(i)} className="text-luma-muted hover:text-red-500 transition-colors"><Trash2 size={14} /></button>
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <label className="label">Notes</label>
+                <textarea className="input min-h-[60px] resize-none text-sm" value={formulaForm.notes} onChange={e => setFormulaForm(f => ({ ...f, notes: e.target.value }))} placeholder="Processing notes, results, client feedback..." />
+              </div>
+            </div>
+            <div className="p-5 border-t border-luma-border flex gap-3 sticky bottom-0 bg-white">
+              <button onClick={() => setShowFormulaModal(false)} className="flex-1 btn bg-luma-surface text-luma-black">Cancel</button>
+              <button onClick={saveFormula} disabled={savingFormula} className="flex-1 btn btn-primary disabled:opacity-60 flex items-center justify-center gap-2">
+                <Save size={14} />{savingFormula ? 'Saving...' : editFormula ? 'Save Changes' : 'Save & Deduct Inventory'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add/Edit Modal */}
       {showModal && (

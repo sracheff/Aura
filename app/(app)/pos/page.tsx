@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useAuth } from '@/lib/useAuth'
 import { supabase, Client, Service } from '@/lib/supabase'
 import Topbar from '@/components/topbar'
@@ -38,6 +39,8 @@ const PAYMENT_METHODS = [
 
 export default function POSPage() {
   const { userId, loading } = useAuth()
+  const searchParams = useSearchParams()
+  const preloadedRef = useRef(false)
   const [services, setServices] = useState<Service[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [clients, setClients] = useState<Client[]>([])
@@ -81,6 +84,46 @@ export default function POSPage() {
       fetchRecentTx()
     }
   }, [userId])
+
+  // Pre-populate from calendar appointment params
+  useEffect(() => {
+    if (!userId || preloadedRef.current) return
+    const clientId = searchParams.get('clientId')
+    const clientName = searchParams.get('clientName')
+    const servicesParam = searchParams.get('services')
+
+    if (!servicesParam) return
+    preloadedRef.current = true
+
+    try {
+      const apptServices = JSON.parse(servicesParam)
+      const cartItems: CartItem[] = apptServices
+        .filter((s: any) => s.name)
+        .map((s: any) => ({
+          id: `appt-${Math.random()}`,
+          name: s.name,
+          price: parseFloat(s.price) || 0,
+          qty: 1,
+          type: 'service' as const,
+        }))
+      if (cartItems.length > 0) setCart(cartItems)
+    } catch {}
+
+    // Set client after clients have loaded
+    if (clientId) {
+      const interval = setInterval(() => {
+        setClients(prev => {
+          const found = prev.find(c => c.id === clientId)
+          if (found) {
+            setSelectedClient(found)
+            clearInterval(interval)
+          }
+          return prev
+        })
+      }, 300)
+      setTimeout(() => clearInterval(interval), 5000)
+    }
+  }, [userId, searchParams])
 
   async function fetchServices() {
     const { data } = await supabase.from('services').select('*').eq('owner_id', userId).eq('active', true).order('name')

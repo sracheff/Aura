@@ -5,7 +5,8 @@ import Topbar from '@/components/topbar'
 import { useAuth } from '@/lib/useAuth'
 import { supabase } from '@/lib/supabase'
 import { clsx } from 'clsx'
-import { ChevronLeft, ChevronRight, Loader2, X, Clock, Plus, Trash2, RefreshCw, AlertTriangle, Timer, Bell, CheckCircle2, Star, FileText } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Loader2, X, Clock, Plus, Trash2, RefreshCw, AlertTriangle, Timer, Bell, CheckCircle2, Star, FileText, ShoppingCart } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 
 type CalView = 'day' | 'week' | 'month'
 
@@ -16,6 +17,7 @@ const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 export default function CalendarPage() {
   const { userId, loading: authLoading } = useAuth()
+  const router = useRouter()
   const [appointments, setAppointments] = useState<any[]>([])
   const [staff, setStaff]       = useState<any[]>([])
   const [clients, setClients]   = useState<any[]>([])
@@ -704,6 +706,26 @@ export default function CalendarPage() {
                   {savingNotes ? 'Saving…' : 'Save Notes'}
                 </button>
               </div>
+
+              {/* Checkout button — sends appointment to POS */}
+              <button
+                onClick={() => {
+                  const params = new URLSearchParams()
+                  if (selected.client_id) params.set('clientId', selected.client_id)
+                  if (selected.clients?.name) params.set('clientName', selected.clients.name)
+                  // Pass all services as JSON
+                  const services = Array.isArray(selected.services)
+                    ? selected.services
+                    : [{ name: selected.service_name, price: selected.price }]
+                  params.set('services', JSON.stringify(services))
+                  if (selected.staff_id) params.set('staffId', selected.staff_id)
+                  params.set('appointmentId', selected.id)
+                  router.push(`/pos?${params.toString()}`)
+                }}
+                className="w-full py-2.5 bg-gold text-luma-black rounded-xl text-sm font-bold hover:bg-gold-dark transition-colors flex items-center justify-center gap-2"
+              >
+                <ShoppingCart size={15} /> Checkout
+              </button>
 
               <button
                 onClick={() => deleteAppointment(selected.id)}
