@@ -6,9 +6,9 @@ import { supabase } from '@/lib/supabase'
 import Topbar from '@/components/topbar'
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis,
-  Tooltip, ResponsiveContainer, CartesianGrid
+  Tooltip, ResponsiveContainer, CartesianGrid, Cell, PieChart, Pie
 } from 'recharts'
-import { TrendingUp, Users, Scissors, DollarSign, Star } from 'lucide-react'
+import { TrendingUp, Users, Scissors, DollarSign, Star, Wallet } from 'lucide-react'
 
 type ServiceStat = { name: string; count: number; revenue: number }
 type ClientStat = { name: string; spend: number; visits: number }
@@ -24,6 +24,8 @@ export default function ReportsPage() {
   const [dayRevenue, setDayRevenue] = useState<DayRevenue[]>([])
   const [summary, setSummary] = useState({ revenue: 0, transactions: 0, avgTicket: 0, newClients: 0 })
   const [sourceStats, setSourceStats] = useState<{ source: string; count: number }[]>([])
+  const [payrollStats, setPayrollStats] = useState<{ name: string; revenue: number; appointments: number; commission_rate: number; payout: number; color: string }[]>([])
+  const [reportTab, setReportTab] = useState<'analytics' | 'payroll'>('analytics')
   const [loadingData, setLoadingData] = useState(false)
 
   useEffect(() => {
@@ -129,6 +131,31 @@ export default function ReportsPage() {
       )
     }
 
+    // Payroll stats — join staff commission_rate
+    const { data: staffFull } = await supabase
+      .from('staff')
+      .select('name, color, commission_rate')
+      .eq('owner_id', userId)
+    if (apptData && staffFull) {
+      const staffRevMap: Record<string, { revenue: number; appointments: number; commission_rate: number; color: string }> = {}
+      apptData.forEach((a: { price: number; staff?: { name: string; color: string } }) => {
+        const name = a.staff?.name || 'Unknown'
+        const color = a.staff?.color || '#C9A96E'
+        if (!staffRevMap[name]) {
+          const sf = staffFull.find((s: { name: string }) => s.name === name)
+          staffRevMap[name] = { revenue: 0, appointments: 0, commission_rate: sf?.commission_rate || 0, color }
+        }
+        staffRevMap[name].revenue += a.price
+        staffRevMap[name].appointments += 1
+      })
+      setPayrollStats(
+        Object.entries(staffRevMap).map(([name, v]) => ({
+          name, ...v,
+          payout: v.revenue * (v.commission_rate / 100)
+        })).sort((a, b) => b.revenue - a.revenue)
+      )
+    }
+
     setLoadingData(false)
   }
 
@@ -149,6 +176,72 @@ export default function ReportsPage() {
           ))}
           {loadingData && <div className="w-4 h-4 border-2 border-gold border-t-transparent rounded-full animate-spin ml-2" />}
         </div>
+
+        {/* Tab switcher */}
+        <div className="flex gap-1 bg-luma-surface border border-luma-border rounded-xl p-1 w-fit">
+          {([['analytics', 'Analytics'], ['payroll', 'Payroll']] as const).map(([val, label]) => (
+            <button key={val} onClick={() => setReportTab(val)}
+              className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${reportTab === val ? 'bg-white shadow-sm text-luma-black' : 'text-luma-muted hover:text-luma-black'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {reportTab === 'payroll' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl border border-luma-border overflow-hidden">
+              <div className="px-6 py-4 border-b border-luma-border flex items-center gap-2">
+                <Wallet size={16} className="text-gold" />
+                <h3 className="font-bold text-luma-black">Payroll Summary</h3>
+                <span className="text-xs text-luma-muted ml-1">Based on completed appointments · commission rates set in Staff</span>
+              </div>
+              {payrollStats.length === 0 ? (
+                <div className="p-12 text-center text-luma-muted">
+                  <Wallet size={36} className="mx-auto mb-3 opacity-20" />
+                  <p className="font-medium text-luma-black">No payroll data</p>
+                  <p className="text-sm mt-1">Complete appointments and set commission rates in Staff to see payroll here</p>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-0 px-6 py-3 border-b border-luma-border bg-luma-surface text-xs font-semibold text-luma-muted uppercase tracking-wide">
+                    <span>Stylist</span>
+                    <span className="w-28 text-right">Appointments</span>
+                    <span className="w-28 text-right">Revenue</span>
+                    <span className="w-24 text-center">Commission</span>
+                    <span className="w-28 text-right">Payout</span>
+                  </div>
+                  <div className="divide-y divide-luma-border">
+                    {payrollStats.map(s => (
+                      <div key={s.name} className="grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-0 px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-bold" style={{ backgroundColor: s.color }}>
+                            {s.name.charAt(0)}
+                          </div>
+                          <span className="font-semibold text-luma-black">{s.name}</span>
+                        </div>
+                        <div className="w-28 text-right text-sm text-luma-muted">{s.appointments} appts</div>
+                        <div className="w-28 text-right text-sm font-medium text-luma-black">${s.revenue.toFixed(2)}</div>
+                        <div className="w-24 text-center">
+                          <span className="text-xs font-bold bg-luma-surface px-2 py-1 rounded-lg">{s.commission_rate}%</span>
+                        </div>
+                        <div className="w-28 text-right text-lg font-bold text-gold">${s.payout.toFixed(2)}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-[1fr_auto_auto_auto_auto] px-6 py-4 border-t-2 border-luma-border bg-luma-surface">
+                    <span className="font-bold text-luma-black">Total</span>
+                    <span className="w-28 text-right text-sm font-semibold text-luma-black">{payrollStats.reduce((s, p) => s + p.appointments, 0)} appts</span>
+                    <span className="w-28 text-right text-sm font-bold text-luma-black">${payrollStats.reduce((s, p) => s + p.revenue, 0).toFixed(2)}</span>
+                    <span className="w-24" />
+                    <span className="w-28 text-right text-lg font-bold text-gold">${payrollStats.reduce((s, p) => s + p.payout, 0).toFixed(2)}</span>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {reportTab === 'analytics' && <>
 
         {/* KPIs */}
         <div className="grid grid-cols-4 gap-4">
@@ -304,6 +397,7 @@ export default function ReportsPage() {
             <p className="text-sm text-luma-muted mt-1">Complete transactions in POS to see analytics here</p>
           </div>
         )}
+        </>}
       </div>
     </div>
   )

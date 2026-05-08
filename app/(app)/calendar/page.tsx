@@ -5,7 +5,7 @@ import Topbar from '@/components/topbar'
 import { useAuth } from '@/lib/useAuth'
 import { supabase } from '@/lib/supabase'
 import { clsx } from 'clsx'
-import { ChevronLeft, ChevronRight, Loader2, X, Clock, Plus, Trash2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Loader2, X, Clock, Plus, Trash2, RefreshCw, AlertTriangle, Timer, Bell, CheckCircle2 } from 'lucide-react'
 
 type CalView = 'day' | 'week' | 'month'
 
@@ -26,9 +26,11 @@ export default function CalendarPage() {
   const [selected, setSelected] = useState<any>(null)
   const [showModal, setShowModal] = useState(false)
   const [saving, setSaving]     = useState(false)
+  const [sendingReminder, setSendingReminder] = useState(false)
+  const [reminderSent, setReminderSent]       = useState<string | null>(null) // appointmentId
 
   const [formBase, setFormBase] = useState({
-    client_id: '', staff_id: '', date: '', time: '09:00', status: 'confirmed', notes: '',
+    client_id: '', staff_id: '', date: '', time: '09:00', status: 'confirmed', notes: '', recurring_rule: 'none', buffer_minutes: '0',
   })
   const [formServices, setFormServices] = useState<
     { service_id: string; service_name: string; price: string; duration: string }[]
@@ -122,17 +124,22 @@ export default function CalendarPage() {
     setSaving(true)
     const start_time = new Date(`${formBase.date}T${formBase.time}`).toISOString()
     const serviceSummary = formServices.filter(s => s.service_name).map(s => s.service_name).join(' + ')
-    const { data: appt, error } = await supabase.from('appointments').insert({
+    const bufferMins = parseInt(formBase.buffer_minutes) || 0
+    const baseAppt = {
       owner_id: userId,
       client_id: formBase.client_id || null,
       staff_id: formBase.staff_id || null,
       service_name: serviceSummary || 'Custom',
       price: totalPrice,
       duration: totalDuration,
-      start_time,
       status: formBase.status,
       notes: formBase.notes,
       loyalty_points: Math.round(totalPrice * 1.5),
+      recurring_rule: formBase.recurring_rule,
+      buffer_minutes: bufferMins,
+    }
+    const { data: appt, error } = await supabase.from('appointments').insert({
+      ...baseAppt, start_time,
     }).select('id').single()
     if (!error && appt?.id) {
       const rows = formServices.filter(s => s.service_name).map(s => ({
@@ -143,6 +150,21 @@ export default function CalendarPage() {
         duration: parseInt(s.duration) || 60,
       }))
       if (rows.length > 0) await supabase.from('appointment_services').insert(rows)
+
+      // Create recurring instances (up to 8 weeks out)
+      if (formBase.recurring_rule !== 'none') {
+        const intervals: Record<string, number> = { weekly: 7, biweekly: 14, monthly: 30 }
+        const days = intervals[formBase.recurring_rule] || 7
+        const recurringInserts = []
+        for (let i = 1; i <= 8; i++) {
+          const d = new Date(start_time)
+          if (formBase.recurring_rule === 'monthly') d.setMonth(d.getMonth() + i)
+          else d.setDate(d.getDate() + days * i)
+          recurringInserts.push({ ...baseAppt, start_time: d.toISOString(), recurring_parent: appt.id })
+        }
+        await supabase.from('appointments').insert(recurringInserts)
+      }
+
       setShowModal(false)
       resetForm()
       fetchAll()
@@ -151,7 +173,7 @@ export default function CalendarPage() {
   }
 
   function resetForm() {
-    setFormBase({ client_id: '', staff_id: '', date: selectedDate.toISOString().split('T')[0], time: '09:00', status: 'confirmed', notes: '' })
+    setFormBase({ client_id: '', staff_id: '', date: selectedDate.toISOString().split('T')[0], time: '09:00', status: 'confirmed', notes: '', recurring_rule: 'none', buffer_minutes: '0' })
     setFormServices([{ service_id: '', service_name: '', price: '', duration: '60' }])
   }
 
@@ -165,6 +187,27 @@ export default function CalendarPage() {
     await supabase.from('appointments').delete().eq('id', id)
     setSelected(null)
     fetchAll()
+  }
+
+  async function sendReminder(apptId: string) {
+    setSendingReminder(true)
+    try {
+      const res = await fetch('/api/send-reminder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appointmentId: apptId, ownerId: userId }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setReminderSent(apptId)
+        setTimeout(() => setReminderSent(null), 4000)
+      } else {
+        alert(data.error || 'Failed to send reminder')
+      }
+    } catch {
+      alert('Network error sending reminder')
+    }
+    setSendingReminder(false)
   }
 
   // ── Day view ─────────────────────────────────────────────────────────
@@ -489,13 +532,42 @@ export default function CalendarPage() {
               {[
                 ['Stylist', selected.staff?.name || 'Unassigned'],
                 ['Price',   `$${selected.price}`],
-                ['Status',  selected.status],
               ].map(([k, v]) => (
                 <div key={k} className="flex justify-between">
                   <span className="text-luma-muted">{k}</span>
                   <span className="font-medium text-luma-black capitalize">{v}</span>
                 </div>
               ))}
+              {/* Status badge */}
+              <div className="flex justify-between items-center">
+                <span className="text-luma-muted">Status</span>
+                <span className={clsx('text-xs font-semibold px-2 py-0.5 rounded-full capitalize', {
+                  'bg-green-100 text-green-700': selected.status === 'confirmed' || selected.status === 'arrived',
+                  'bg-blue-100 text-blue-700': selected.status === 'completed',
+                  'bg-red-100 text-red-600': selected.status === 'cancelled' || selected.status === 'no_show',
+                  'bg-yellow-100 text-yellow-700': selected.status === 'pending',
+                })}>
+                  {selected.status === 'no_show' ? 'No-show' : selected.status}
+                </span>
+              </div>
+              {/* Recurring badge */}
+              {selected.recurring_rule && selected.recurring_rule !== 'none' && (
+                <div className="flex justify-between items-center">
+                  <span className="text-luma-muted">Repeats</span>
+                  <span className="flex items-center gap-1 text-xs font-semibold text-gold capitalize">
+                    <RefreshCw size={10} />{selected.recurring_rule}
+                  </span>
+                </div>
+              )}
+              {/* Buffer badge */}
+              {selected.buffer_minutes > 0 && (
+                <div className="flex justify-between items-center">
+                  <span className="text-luma-muted">Buffer</span>
+                  <span className="flex items-center gap-1 text-xs font-semibold text-luma-muted">
+                    <Timer size={10} />{selected.buffer_minutes}min cleanup
+                  </span>
+                </div>
+              )}
               {selected.notes && (
                 <div className="pt-2 border-t border-luma-border">
                   <p className="text-xs text-luma-muted">{selected.notes}</p>
@@ -503,27 +575,54 @@ export default function CalendarPage() {
               )}
             </div>
             <div className="space-y-2">
-              <div className="grid grid-cols-2 gap-2">
-                {['confirmed', 'arrived', 'completed', 'cancelled'].map(s => (
+              <p className="text-xs font-semibold text-luma-muted mb-1">Update status</p>
+              <div className="grid grid-cols-2 gap-1.5">
+                {[
+                  { val: 'confirmed', label: 'Confirmed' },
+                  { val: 'arrived',   label: 'Arrived' },
+                  { val: 'completed', label: 'Completed' },
+                  { val: 'cancelled', label: 'Cancelled' },
+                  { val: 'no_show',   label: 'No-show' },
+                  { val: 'pending',   label: 'Pending' },
+                ].map(({ val, label }) => (
                   <button
-                    key={s}
-                    onClick={() => updateStatus(selected.id, s)}
+                    key={val}
+                    onClick={() => updateStatus(selected.id, val)}
                     className={clsx(
-                      'py-1.5 rounded-lg text-xs font-medium border transition-all capitalize',
-                      selected.status === s
+                      'py-1.5 rounded-lg text-xs font-medium border transition-all',
+                      selected.status === val
                         ? 'bg-gold border-gold text-luma-black'
                         : 'border-luma-border text-luma-muted hover:border-gold/40'
                     )}
                   >
-                    {s}
+                    {label}
                   </button>
                 ))}
               </div>
+              {/* Send reminder */}
+              {selected.client_id && (
+                <button
+                  onClick={() => sendReminder(selected.id)}
+                  disabled={sendingReminder}
+                  className={`w-full py-2 rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
+                    reminderSent === selected.id
+                      ? 'bg-green-50 text-green-600'
+                      : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                  }`}
+                >
+                  {reminderSent === selected.id
+                    ? <><CheckCircle2 size={14} />Reminder Sent!</>
+                    : sendingReminder
+                    ? <><Loader2 size={14} className="animate-spin" />Sending…</>
+                    : <><Bell size={14} />Send Reminder</>
+                  }
+                </button>
+              )}
               <button
                 onClick={() => deleteAppointment(selected.id)}
-                className="w-full py-2 mt-2 bg-red-50 text-red-600 rounded-xl text-sm font-semibold hover:bg-red-100 transition-colors"
+                className="w-full py-2 bg-red-50 text-red-600 rounded-xl text-sm font-semibold hover:bg-red-100 transition-colors"
               >
-                Cancel Appointment
+                Delete Appointment
               </button>
             </div>
           </div>
@@ -655,6 +754,54 @@ export default function CalendarPage() {
                   placeholder="Special requests, color formula reminders..."
                 />
               </div>
+
+              {/* Recurring + Buffer + Status row */}
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="label flex items-center gap-1"><RefreshCw size={11} />Repeat</label>
+                  <select
+                    value={formBase.recurring_rule}
+                    onChange={e => setFormBase(f => ({ ...f, recurring_rule: e.target.value }))}
+                    className="input w-full text-sm"
+                  >
+                    <option value="none">Does not repeat</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="biweekly">Every 2 weeks</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label flex items-center gap-1"><Timer size={11} />Buffer (min)</label>
+                  <input
+                    type="number" min="0" step="5"
+                    value={formBase.buffer_minutes}
+                    onChange={e => setFormBase(f => ({ ...f, buffer_minutes: e.target.value }))}
+                    className="input w-full text-sm"
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <label className="label flex items-center gap-1"><AlertTriangle size={11} />Status</label>
+                  <select
+                    value={formBase.status}
+                    onChange={e => setFormBase(f => ({ ...f, status: e.target.value }))}
+                    className="input w-full text-sm"
+                  >
+                    <option value="confirmed">Confirmed</option>
+                    <option value="pending">Pending</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                    <option value="no_show">No-show</option>
+                  </select>
+                </div>
+              </div>
+
+              {formBase.recurring_rule !== 'none' && (
+                <div className="flex items-center gap-2 p-3 bg-gold/5 border border-gold/20 rounded-xl text-xs text-luma-muted">
+                  <RefreshCw size={12} className="text-gold shrink-0" />
+                  Creates 8 recurring appointments. You can cancel individual ones from the calendar.
+                </div>
+              )}
 
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setShowModal(false)} className="flex-1 py-2.5 border border-luma-border rounded-xl text-sm font-semibold text-luma-black hover:bg-luma-surface">

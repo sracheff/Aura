@@ -8,7 +8,7 @@ import {
   Users, Plus, Search, Star, ChevronRight,
   Mail, Phone, Calendar, DollarSign, Gift,
   X, Edit2, Trash2, AlertCircle, Crown, Award, Gem
-} from 'lucide-react'
+, ExternalLink, Copy } from 'lucide-react'
 
 const TIERS = ['Bronze', 'Silver', 'Gold', 'Diamond']
 
@@ -27,7 +27,7 @@ function getTier(totalSpend: number): string {
 }
 
 const emptyForm = {
-  name: '', email: '', phone: '', notes: '',
+  name: '', email: '', phone: '', notes: '', birthday: '',
   tier: 'Bronze', points: 0, total_spend: 0, visits: 0, referrals: 0
 }
 
@@ -75,7 +75,7 @@ export default function ClientsPage() {
   function openEdit(c: Client) {
     setForm({
       name: c.name, email: c.email || '', phone: c.phone || '',
-      notes: c.notes || '', tier: c.tier, points: c.points,
+      notes: c.notes || '', birthday: (c as any).birthday || '', tier: c.tier, points: c.points,
       total_spend: c.total_spend, visits: c.visits, referrals: c.referrals
     })
     setEditMode(true)
@@ -243,6 +243,12 @@ export default function ClientsPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <a
+                  href={`/portal?owner=${userId}&client=${selected.id}`}
+                  target="_blank"
+                  className="p-2 hover:bg-luma-surface rounded-lg text-luma-muted hover:text-luma-black transition-colors" title="Client portal">
+                  <ExternalLink size={16} />
+                </a>
                 <button onClick={() => openEdit(selected)} className="p-2 hover:bg-luma-surface rounded-lg text-luma-muted hover:text-luma-black transition-colors">
                   <Edit2 size={16} />
                 </button>
@@ -352,6 +358,11 @@ export default function ClientsPage() {
                   <label className="label">Phone</label>
                   <input className="input" type="tel" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="(555) 000-0000" />
                 </div>
+              </div>
+              <div>
+                <label className="label">Birthday (optional) 🎂</label>
+                <input className="input" type="date" value={(form as any).birthday || ''} onChange={e => setForm({...form, birthday: e.target.value} as any)} />
+                <p className="text-xs text-luma-muted mt-1">Used for birthday alerts on dashboard</p>
               </div>
               {editMode && (
                 <div className="grid grid-cols-3 gap-3">

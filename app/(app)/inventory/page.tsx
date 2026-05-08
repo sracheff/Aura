@@ -10,7 +10,7 @@ const PRODUCT_TYPES = ['retail', 'backbar', 'supply']
 
 const emptyForm = {
   name: '', brand: '', type: 'retail',
-  qty: 0, reorder_at: 5, cost: 0, price: 0
+  qty: 0, reorder_at: 5, cost: 0, price: 0, low_stock_threshold: 0
 }
 
 function calcMargin(cost: number, price: number) {
@@ -49,7 +49,7 @@ export default function InventoryPage() {
   }
 
   function openEdit(p: Product) {
-    setForm({ name: p.name, brand: p.brand || '', type: p.type, qty: p.qty, reorder_at: p.reorder_at, cost: p.cost, price: p.price })
+    setForm({ name: p.name, brand: p.brand || '', type: p.type, qty: p.qty, reorder_at: p.reorder_at, cost: p.cost, price: p.price, low_stock_threshold: p.low_stock_threshold || 0 })
     setEditTarget(p)
     setError('')
     setShowModal(true)
@@ -266,6 +266,11 @@ export default function InventoryPage() {
                 <div>
                   <label className="label">Current Qty</label>
                   <input className="input" type="number" min="0" value={form.qty} onChange={e => setForm({...form, qty: parseInt(e.target.value)||0})} />
+                </div>
+                <div>
+                  <label className="label">Low Stock Alert</label>
+                  <input className="input" type="number" min="0" value={form.low_stock_threshold} onChange={e => setForm({...form, low_stock_threshold: parseInt(e.target.value)||0})} placeholder="0 = off" />
+                  <p className="text-xs text-luma-muted mt-1">Alert on dashboard when qty ≤ this</p>
                 </div>
                 <div>
                   <label className="label">Reorder At</label>

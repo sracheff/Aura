@@ -7,21 +7,23 @@ import { useState, useEffect } from 'react'
 import {
   LayoutDashboard, CalendarDays, CalendarClock, Users, ShoppingCart,
   DollarSign, Users2, Gift, Package, BarChart3,
-  Settings, Sparkles, PanelLeftClose, PanelLeftOpen,
+  Settings, Sparkles, PanelLeftClose, PanelLeftOpen, CreditCard, ClipboardList,
 } from 'lucide-react'
 
 const NAV = [
-  { href: '/dashboard', label: 'Dashboard',     icon: LayoutDashboard },
-  { href: '/calendar',  label: 'Calendar',      icon: CalendarDays },
-  { href: '/schedule',  label: 'Schedule',      icon: CalendarClock },
-  { href: '/clients',   label: 'Clients',       icon: Users },
-  { href: '/pos',       label: 'Point of Sale', icon: ShoppingCart },
-  { href: '/finance',   label: 'Finance',       icon: DollarSign },
-  { href: '/staff',     label: 'Staff',         icon: Users2 },
-  { href: '/referrals', label: 'Referrals',     icon: Gift },
-  { href: '/inventory', label: 'Inventory',     icon: Package },
-  { href: '/reports',   label: 'Reports',       icon: BarChart3 },
-  { href: '/settings',  label: 'Settings',      icon: Settings },
+  { href: '/dashboard',  label: 'Dashboard',     icon: LayoutDashboard },
+  { href: '/calendar',   label: 'Calendar',      icon: CalendarDays },
+  { href: '/schedule',   label: 'Schedule',      icon: CalendarClock },
+  { href: '/clients',    label: 'Clients',       icon: Users },
+  { href: '/pos',        label: 'Point of Sale', icon: ShoppingCart },
+  { href: '/finance',    label: 'Finance',       icon: DollarSign },
+  { href: '/staff',      label: 'Staff',         icon: Users2 },
+  { href: '/gift-cards', label: 'Gift Cards',    icon: CreditCard },
+  { href: '/referrals',  label: 'Referrals',     icon: Gift },
+  { href: '/inventory',  label: 'Inventory',     icon: Package },
+  { href: '/reports',    label: 'Reports',       icon: BarChart3 },
+  { href: '/forms',      label: 'Intake Forms',  icon: ClipboardList },
+  { href: '/settings',   label: 'Settings',      icon: Settings },
 ]
 
 export default function Sidebar() {

@@ -5,7 +5,7 @@ import Topbar from '@/components/topbar'
 import { useAuth } from '@/lib/useAuth'
 import { supabase } from '@/lib/supabase'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { TrendingUp, Users, DollarSign, CalendarDays, Clock, ArrowRight, Sparkles, Loader2 } from 'lucide-react'
+import { TrendingUp, Users, DollarSign, CalendarDays, Clock, ArrowRight, Sparkles, Loader2, AlertTriangle, Cake, Package } from 'lucide-react'
 import Link from 'next/link'
 import { clsx } from 'clsx'
 
@@ -16,6 +16,8 @@ export default function DashboardPage() {
   const [revenueData, setRevenueData] = useState<any[]>([])
   const [kpis, setKpis] = useState({ todayRevenue: 0, todayAppts: 0, totalClients: 0, avgTicket: 0 })
   const [loading, setLoading] = useState(true)
+  const [lowStockItems, setLowStockItems] = useState<any[]>([])
+  const [birthdayClients, setBirthdayClients] = useState<any[]>([])
 
   useEffect(() => { if (userId) fetchData() }, [userId])
 
@@ -23,12 +25,14 @@ export default function DashboardPage() {
     const today = new Date(); today.setHours(0,0,0,0)
     const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate()+1)
 
-    const [apptRes, staffRes, clientRes, txRes] = await Promise.all([
+    const [apptRes, staffRes, clientRes, txRes, invRes, clientBdRes] = await Promise.all([
       supabase.from('appointments').select('*, clients(name), staff(name,color)')
         .eq('owner_id', userId).gte('start_time', today.toISOString()).lt('start_time', tomorrow.toISOString()).order('start_time'),
       supabase.from('staff').select('*').eq('owner_id', userId).eq('active', true),
       supabase.from('clients').select('id', { count: 'exact' }).eq('owner_id', userId),
       supabase.from('transactions').select('total, created_at').eq('owner_id', userId),
+      supabase.from('products').select('id,name,qty,low_stock_threshold').eq('owner_id', userId),
+      supabase.from('clients').select('id,name,birthday,phone').eq('owner_id', userId).not('birthday','is',null),
     ])
 
     const appts = apptRes.data || []
@@ -46,6 +50,20 @@ export default function DashboardPage() {
       monthlyMap[m] = (monthlyMap[m]||0) + t.total
     })
     setRevenueData(Object.entries(monthlyMap).map(([month,revenue]) => ({ month, revenue })))
+
+    // Low stock
+    const inv = invRes.data || []
+    setLowStockItems(inv.filter((i:any) => i.low_stock_threshold > 0 && i.qty <= i.low_stock_threshold))
+
+    // Birthdays this month
+    const thisMonth = new Date().getMonth() + 1
+    const bds = (clientBdRes.data || []).filter((c:any) => {
+      if (!c.birthday) return false
+      const m = new Date(c.birthday + 'T12:00:00').getMonth() + 1
+      return m === thisMonth
+    })
+    setBirthdayClients(bds)
+
     setLoading(false)
   }
 
@@ -144,6 +162,64 @@ export default function DashboardPage() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Low Stock Alerts */}
+        {lowStockItems.length > 0 && (
+          <div className="bg-orange-50 border border-orange-200 rounded-2xl p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle size={16} className="text-orange-500" />
+              <h3 className="font-semibold text-luma-black text-sm">Low Stock Alert</h3>
+              <span className="text-xs bg-orange-100 text-orange-600 font-bold px-2 py-0.5 rounded-full ml-auto">{lowStockItems.length} item{lowStockItems.length !== 1 ? 's' : ''}</span>
+            </div>
+            <div className="space-y-2">
+              {lowStockItems.map((item:any) => (
+                <div key={item.id} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Package size={12} className="text-orange-400" />
+                    <span className="text-sm font-medium text-luma-black">{item.name}</span>
+                  </div>
+                  <span className="text-xs font-bold text-orange-600">{item.qty} left (min {item.low_stock_threshold})</span>
+                </div>
+              ))}
+            </div>
+            <Link href="/inventory" className="mt-3 text-xs text-orange-600 font-semibold hover:underline flex items-center gap-1">
+              Go to Inventory <ArrowRight size={11} />
+            </Link>
+          </div>
+        )}
+
+        {/* Birthday Clients */}
+        {birthdayClients.length > 0 && (
+          <div className="bg-pink-50 border border-pink-200 rounded-2xl p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Cake size={16} className="text-pink-500" />
+              <h3 className="font-semibold text-luma-black text-sm">Birthdays This Month 🎂</h3>
+              <span className="text-xs bg-pink-100 text-pink-600 font-bold px-2 py-0.5 rounded-full ml-auto">{birthdayClients.length}</span>
+            </div>
+            <div className="space-y-2">
+              {birthdayClients.slice(0,4).map((c:any) => {
+                const bday = new Date(c.birthday + 'T12:00:00')
+                return (
+                  <div key={c.id} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-full bg-pink-200 flex items-center justify-center text-xs font-bold text-pink-600">
+                        {c.name.charAt(0)}
+                      </div>
+                      <span className="text-sm font-medium text-luma-black">{c.name}</span>
+                    </div>
+                    <span className="text-xs text-pink-600 font-semibold">
+                      {bday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
+                  </div>
+                )
+              })}
+              {birthdayClients.length > 4 && <p className="text-xs text-luma-muted">+{birthdayClients.length - 4} more</p>}
+            </div>
+            <Link href="/clients" className="mt-3 text-xs text-pink-600 font-semibold hover:underline flex items-center gap-1">
+              View all clients <ArrowRight size={11} />
+            </Link>
           </div>
         )}
 
