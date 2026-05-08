@@ -1,36 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Stripe from 'stripe'
-import { createClient } from '@supabase/supabase-js'
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-11-20.acacia' })
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 export async function POST(req: NextRequest) {
-  const body = await req.text()
-  const sig = req.headers.get('stripe-signature')!
-
-  let event: Stripe.Event
   try {
-    event = stripe.webhooks.constructEvent(body, sig, process.env.STRIPE_WEBHOOK_SECRET!)
-  } catch (err: any) {
-    console.error('Webhook signature failed:', err.message)
-    return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
-  }
+    const Stripe = (await import('stripe')).default
+    const { createClient } = await import('@supabase/supabase-js')
 
-  const getOwnerId = (obj: any) => obj?.metadata?.owner_id || null
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-11-20.acacia' as any })
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
 
-  try {
+    const body = await req.text()
+    const sig = req.headers.get('stripe-signature')!
+
+    let event: any
+    try {
+      event = stripe.webhooks.constructEvent(body, sig, process.env.STRIPE_WEBHOOK_SECRET!)
+    } catch (err: any) {
+      console.error('Webhook signature failed:', err.message)
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
+    }
+
+    const getOwnerId = (obj: any) => obj?.metadata?.owner_id || null
+
     switch (event.type) {
       case 'checkout.session.completed': {
-        const session = event.data.object as Stripe.Checkout.Session
+        const session = event.data.object
         const ownerId = getOwnerId(session)
         if (!ownerId || !session.subscription) break
 
-        const sub = await stripe.subscriptions.retrieve(session.subscription as string)
+        const sub = await stripe.subscriptions.retrieve(session.subscription)
         const priceId = sub.items.data[0]?.price.id
         const plan = priceId === process.env.STRIPE_PRICE_PRO ? 'pro' : 'starter'
 
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
       }
 
       case 'customer.subscription.updated': {
-        const sub = event.data.object as Stripe.Subscription
+        const sub = event.data.object
         const ownerId = getOwnerId(sub)
         if (!ownerId) break
 
@@ -63,13 +63,13 @@ export async function POST(req: NextRequest) {
           plan,
           stripe_price_id: priceId,
           subscription_status: sub.status,
-          current_period_end: new Date((sub as any).current_period_end * 1000).toISOString(),
+          current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
         }).eq('owner_id', ownerId)
         break
       }
 
       case 'customer.subscription.deleted': {
-        const sub = event.data.object as Stripe.Subscription
+        const sub = event.data.object
         const ownerId = getOwnerId(sub)
         if (!ownerId) break
 
@@ -81,16 +81,17 @@ export async function POST(req: NextRequest) {
       }
 
       case 'invoice.payment_failed': {
-        const invoice = event.data.object as Stripe.Invoice
-        const customerId = invoice.customer as string
+        const invoice = event.data.object
+        const customerId = invoice.customer
         await supabase.from('salons').update({ subscription_status: 'past_due' })
           .eq('stripe_customer_id', customerId)
         break
       }
     }
-  } catch (err) {
-    console.error('Webhook handler error:', err)
-  }
 
-  return NextResponse.json({ received: true })
+    return NextResponse.json({ received: true })
+  } catch (err: any) {
+    console.error('Webhook error:', err)
+    return NextResponse.json({ error: err.message }, { status: 500 })
+  }
 }

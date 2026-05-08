@@ -1,22 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Stripe from 'stripe'
-import { createClient } from '@supabase/supabase-js'
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-11-20.acacia' })
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
-
-// Price IDs — set these after creating products in Stripe dashboard
-const PRICES: Record<string, string> = {
-  starter: process.env.STRIPE_PRICE_STARTER!,
-  pro:     process.env.STRIPE_PRICE_PRO!,
-}
 
 export async function POST(req: NextRequest) {
   try {
+    const Stripe = (await import('stripe')).default
+    const { createClient } = await import('@supabase/supabase-js')
+
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-11-20.acacia' as any })
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
+
+    const PRICES: Record<string, string> = {
+      starter: process.env.STRIPE_PRICE_STARTER!,
+      pro:     process.env.STRIPE_PRICE_PRO!,
+    }
+
     const { plan, userId, email } = await req.json()
 
     if (!plan || !userId || !email) {
@@ -28,7 +27,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
     }
 
-    // Get or create Stripe customer
     const { data: salon } = await supabase
       .from('salons')
       .select('stripe_customer_id, name')
@@ -55,10 +53,6 @@ export async function POST(req: NextRequest) {
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${appUrl}/settings?tab=billing&success=true`,
       cancel_url: `${appUrl}/settings?tab=billing`,
-      subscription_data: {
-        metadata: { owner_id: userId },
-        trial_settings: { end_behavior: { missing_payment_method: 'cancel' } },
-      },
       allow_promotion_codes: true,
       metadata: { owner_id: userId, plan },
     })
