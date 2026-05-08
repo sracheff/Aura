@@ -624,7 +624,6 @@ export default function POSPage() {
           </div>
         </div>
       )}
-    </div>
 
       {/* ── End of Day modal ── */}
       {showEOD && eodData && (
