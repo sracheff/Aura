@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { clsx } from 'clsx'
 import { useState, useEffect } from 'react'
 import {
-  LayoutDashboard, CalendarDays, Users, ShoppingCart,
+  LayoutDashboard, CalendarDays, CalendarClock, Users, ShoppingCart,
   DollarSign, Users2, Gift, Package, BarChart3,
   Settings, Sparkles, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react'
@@ -13,6 +13,7 @@ import {
 const NAV = [
   { href: '/dashboard', label: 'Dashboard',     icon: LayoutDashboard },
   { href: '/calendar',  label: 'Calendar',      icon: CalendarDays },
+  { href: '/schedule',  label: 'Schedule',      icon: CalendarClock },
   { href: '/clients',   label: 'Clients',       icon: Users },
   { href: '/pos',       label: 'Point of Sale', icon: ShoppingCart },
   { href: '/finance',   label: 'Finance',       icon: DollarSign },
