@@ -88,14 +88,14 @@ export default function Sidebar() {
 
       {/* AI Coach CTA */}
       <div className="px-4 pb-4">
-        <div className="rounded-xl bg-gradient-to-br from-gold/20 to-gold/5 border border-gold/20 p-4">
+        <Link href="/coach" className="block rounded-xl bg-gradient-to-br from-gold/20 to-gold/5 border border-gold/20 p-4 hover:border-gold/40 transition-colors">
           <div className="flex items-center gap-2 mb-1">
             <Sparkles size={14} className="text-gold" />
             <span className="text-gold text-xs font-semibold">AI Business Coach</span>
           </div>
           <p className="text-luma-muted text-xs mb-3">Get personalized insights to grow your salon</p>
-          <button className="w-full btn btn-primary btn-sm text-xs">Ask LUMA AI</button>
-        </div>
+          <div className="w-full text-center bg-gold text-luma-black text-xs font-bold py-1.5 rounded-lg">Ask LUMA AI</div>
+        </Link>
       </div>
 
       {/* User */}
