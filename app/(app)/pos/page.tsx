@@ -313,7 +313,7 @@ export default function POSPage() {
       }
     }
 
-    // Deduct formula products (backbar used during service)
+    // Deduct formula products (backbar used during service) + auto-log as COGS expense
     if (selectedFormulaId) {
       const formula = clientFormulas.find(f => f.id === selectedFormulaId)
       if (formula?.products_used?.length > 0) {
@@ -323,14 +323,27 @@ export default function POSPage() {
           if (amt <= 0) continue
           const { data: prod } = await supabase
             .from('products')
-            .select('qty, tube_size, tube_size_unit')
+            .select('qty, tube_size, tube_size_unit, cost')
             .eq('id', p.product_id)
             .single()
           if (prod) {
             let deductAmt = amt
             const tubeSize = parseFloat(prod.tube_size) || 0
             if (tubeSize > 0) deductAmt = amt / tubeSize
+            // Update inventory
             await supabase.from('products').update({ qty: Math.max(0, (prod.qty || 0) - deductAmt) }).eq('id', p.product_id)
+            // Auto-log as Backbar / COGS expense
+            const costAmt = (prod.cost || 0) * deductAmt
+            if (costAmt > 0) {
+              await supabase.from('expenses').insert({
+                owner_id: userId,
+                category: 'backbar',
+                amount: parseFloat(costAmt.toFixed(2)),
+                expense_date: new Date().toISOString().split('T')[0],
+                vendor: p.product_name,
+                notes: `Formula: ${formula.service_name}${selectedClient ? ' · ' + selectedClient.name : ''}`,
+              })
+            }
           }
         }
       }

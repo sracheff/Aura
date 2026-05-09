@@ -7,7 +7,8 @@ import Topbar from '@/components/topbar'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { TrendingUp, TrendingDown, DollarSign, Plus, Edit2, Trash2, X, AlertCircle } from 'lucide-react'
 
-const EXPENSE_CATEGORIES = ['Rent', 'Utilities', 'Payroll', 'Supplies', 'Marketing', 'Insurance', 'Equipment', 'Software', 'Other']
+const EXPENSE_CATEGORIES = ['backbar', 'Rent', 'Utilities', 'Payroll', 'Supplies', 'Marketing', 'Insurance', 'Equipment', 'Software', 'Other']
+const COGS_CATEGORIES = ['backbar']
 const EXPENSE_TYPES = ['fixed', 'variable']
 
 const emptyForm = {
@@ -52,10 +53,14 @@ export default function FinancePage() {
       const label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
       const start = d.toISOString()
       const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59).toISOString()
+      const startDate = start.split('T')[0]
+      const endDate = end.split('T')[0]
 
       const [txRes, expRes] = await Promise.all([
         supabase.from('transactions').select('total').eq('owner_id', userId).gte('created_at', start).lte('created_at', end),
-        supabase.from('expenses').select('amount').eq('owner_id', userId).gte('date', start.split('T')[0]).lte('date', end.split('T')[0])
+        supabase.from('expenses').select('amount').eq('owner_id', userId)
+          .or(`expense_date.gte.${startDate},date.gte.${startDate}`)
+          .or(`expense_date.lte.${endDate},date.lte.${endDate}`)
       ])
       const rev = (txRes.data || []).reduce((s, t) => s + t.total, 0)
       const exp = (expRes.data || []).reduce((s, e) => s + e.amount, 0)
@@ -64,16 +69,24 @@ export default function FinancePage() {
     setRevenueData(months)
   }
 
-  const currentMonth = revenueData[revenueData.length - 1]
   const totalRevenue = (revenueData[revenueData.length - 1]?.revenue || 0)
-  const totalExpenses = expenses
-    .filter(e => {
-      const d = new Date(e.date)
-      const now = new Date()
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
-    })
-    .reduce((s, e) => s + e.amount, 0)
-  const netProfit = totalRevenue - totalExpenses
+
+  // Split expenses: COGS (backbar) vs Operating
+  const currentMonthExpenses = expenses.filter(e => {
+    const dateStr = (e as any).expense_date || e.date
+    if (!dateStr) return false
+    const d = new Date(dateStr + 'T00:00:00')
+    const now = new Date()
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+  })
+  const cogsExpenses = currentMonthExpenses.filter(e => COGS_CATEGORIES.includes(e.category))
+  const opExpenses = currentMonthExpenses.filter(e => !COGS_CATEGORIES.includes(e.category))
+  const cogsTotal = cogsExpenses.reduce((s, e) => s + e.amount, 0)
+  const opTotal = opExpenses.reduce((s, e) => s + e.amount, 0)
+  const totalExpenses = cogsTotal + opTotal
+  const grossProfit = totalRevenue - cogsTotal
+  const netProfit = grossProfit - opTotal
+  const grossMargin = totalRevenue > 0 ? ((grossProfit / totalRevenue) * 100).toFixed(1) : '0'
   const profitMargin = totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(1) : '0'
 
   function openAdd() {
@@ -128,17 +141,62 @@ export default function FinancePage() {
       <Topbar title="Finance" action={{ label: 'Add Expense', onClick: openAdd }} />
 
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        {/* KPI row */}
+        {/* P&L Summary */}
+        <div className="bg-white rounded-2xl border border-luma-border overflow-hidden">
+          <div className="px-6 py-4 border-b border-luma-border">
+            <h3 className="font-bold text-luma-black">Profit & Loss — Month to Date</h3>
+          </div>
+          <div className="p-6 space-y-1">
+            {/* Revenue */}
+            <div className="flex items-center justify-between py-2.5 border-b border-luma-border">
+              <div className="flex items-center gap-2 text-sm font-semibold text-luma-black">
+                <TrendingUp size={15} className="text-green-600" /> Revenue
+              </div>
+              <span className="font-bold text-green-600 text-base">${totalRevenue.toFixed(2)}</span>
+            </div>
+            {/* COGS */}
+            <div className="flex items-center justify-between py-2 pl-4">
+              <span className="text-sm text-luma-muted">Backbar / Cost of Services</span>
+              <span className="text-sm font-medium text-red-500">−${cogsTotal.toFixed(2)}</span>
+            </div>
+            {/* Gross Profit */}
+            <div className="flex items-center justify-between py-2.5 border-t border-b border-luma-border bg-luma-surface/50 px-3 rounded-xl">
+              <span className="text-sm font-bold text-luma-black">Gross Profit</span>
+              <div className="text-right">
+                <span className={`font-bold text-base ${grossProfit >= 0 ? 'text-gold' : 'text-red-500'}`}>${grossProfit.toFixed(2)}</span>
+                <span className="text-xs text-luma-muted ml-2">({grossMargin}% margin)</span>
+              </div>
+            </div>
+            {/* Operating Expenses */}
+            <div className="flex items-center justify-between py-2 pl-4">
+              <span className="text-sm text-luma-muted">Operating Expenses</span>
+              <span className="text-sm font-medium text-red-500">−${opTotal.toFixed(2)}</span>
+            </div>
+            {/* Net Profit */}
+            <div className={`flex items-center justify-between py-3 px-3 rounded-xl ${netProfit >= 0 ? 'bg-gold/10' : 'bg-red-50'}`}>
+              <div className="flex items-center gap-2 font-bold text-luma-black">
+                <DollarSign size={16} className={netProfit >= 0 ? 'text-gold' : 'text-red-500'} />
+                Net Profit
+              </div>
+              <div className="text-right">
+                <span className={`font-bold text-xl ${netProfit >= 0 ? 'text-gold' : 'text-red-500'}`}>${netProfit.toFixed(2)}</span>
+                <span className="text-xs text-luma-muted ml-2">({profitMargin}% margin)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Quick KPIs */}
         <div className="grid grid-cols-4 gap-4">
           {[
-            { label: 'Revenue (MTD)', value: `$${totalRevenue.toFixed(0)}`, icon: <TrendingUp size={20} />, color: 'text-green-600', bg: 'bg-green-50' },
-            { label: 'Expenses (MTD)', value: `$${totalExpenses.toFixed(0)}`, icon: <TrendingDown size={20} />, color: 'text-red-500', bg: 'bg-red-50' },
-            { label: 'Net Profit', value: `$${netProfit.toFixed(0)}`, icon: <DollarSign size={20} />, color: netProfit >= 0 ? 'text-gold' : 'text-red-500', bg: netProfit >= 0 ? 'bg-gold/10' : 'bg-red-50' },
-            { label: 'Profit Margin', value: `${profitMargin}%`, icon: <TrendingUp size={20} />, color: 'text-blue-600', bg: 'bg-blue-50' },
+            { label: 'Revenue', value: `$${totalRevenue.toFixed(0)}`, color: 'text-green-600', bg: 'bg-green-50', icon: <TrendingUp size={18} /> },
+            { label: 'Backbar / COGS', value: `$${cogsTotal.toFixed(0)}`, color: 'text-emerald-700', bg: 'bg-emerald-50', icon: <span className="text-base">🧪</span> },
+            { label: 'Operating Exp.', value: `$${opTotal.toFixed(0)}`, color: 'text-red-500', bg: 'bg-red-50', icon: <TrendingDown size={18} /> },
+            { label: 'Net Profit', value: `$${netProfit.toFixed(0)}`, color: netProfit >= 0 ? 'text-gold' : 'text-red-500', bg: netProfit >= 0 ? 'bg-gold/10' : 'bg-red-50', icon: <DollarSign size={18} /> },
           ].map((k, i) => (
             <div key={i} className="bg-white rounded-2xl p-5 border border-luma-border">
               <div className={`w-10 h-10 rounded-xl ${k.bg} ${k.color} flex items-center justify-center mb-3`}>{k.icon}</div>
-              <div className="text-2xl font-bold text-luma-black">{k.value}</div>
+              <div className={`text-2xl font-bold ${k.color}`}>{k.value}</div>
               <div className="text-sm text-luma-muted mt-1">{k.label}</div>
             </div>
           ))}

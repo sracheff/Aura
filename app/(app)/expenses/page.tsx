@@ -7,14 +7,17 @@ import Topbar from '@/components/topbar'
 import { Plus, X, Trash2, TrendingDown, DollarSign, BarChart3, ShoppingBag, Zap, Wrench, Megaphone, Users2, HelpCircle, AlertCircle, ChevronDown } from 'lucide-react'
 
 const CATEGORIES = [
-  { value: 'rent',      label: 'Rent / Lease',    icon: '🏢', color: 'bg-purple-100 text-purple-700' },
-  { value: 'supplies',  label: 'Supplies',         icon: '🧴', color: 'bg-blue-100 text-blue-700'   },
-  { value: 'utilities', label: 'Utilities',        icon: '⚡', color: 'bg-yellow-100 text-yellow-700'},
-  { value: 'equipment', label: 'Equipment',        icon: '🔧', color: 'bg-orange-100 text-orange-700'},
-  { value: 'marketing', label: 'Marketing',        icon: '📣', color: 'bg-pink-100 text-pink-700'   },
-  { value: 'payroll',   label: 'Payroll / Staff',  icon: '👥', color: 'bg-green-100 text-green-700' },
-  { value: 'other',     label: 'Other',            icon: '📦', color: 'bg-gray-100 text-gray-600'   },
+  { value: 'backbar',   label: 'Backbar / COGS',   icon: '🧪', color: 'bg-emerald-100 text-emerald-700', isCogs: true  },
+  { value: 'rent',      label: 'Rent / Lease',     icon: '🏢', color: 'bg-purple-100 text-purple-700',  isCogs: false },
+  { value: 'supplies',  label: 'Supplies',          icon: '🧴', color: 'bg-blue-100 text-blue-700',      isCogs: false },
+  { value: 'utilities', label: 'Utilities',         icon: '⚡', color: 'bg-yellow-100 text-yellow-700',  isCogs: false },
+  { value: 'equipment', label: 'Equipment',         icon: '🔧', color: 'bg-orange-100 text-orange-700',  isCogs: false },
+  { value: 'marketing', label: 'Marketing',         icon: '📣', color: 'bg-pink-100 text-pink-700',      isCogs: false },
+  { value: 'payroll',   label: 'Payroll / Staff',   icon: '👥', color: 'bg-green-100 text-green-700',   isCogs: false },
+  { value: 'other',     label: 'Other',             icon: '📦', color: 'bg-gray-100 text-gray-600',      isCogs: false },
 ]
+
+const COGS_CATEGORIES = ['backbar']
 
 type Expense = {
   id: string
@@ -93,6 +96,8 @@ export default function ExpensesPage() {
   }
 
   const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0)
+  const cogsTotal = expenses.filter(e => COGS_CATEGORIES.includes(e.category)).reduce((s, e) => s + e.amount, 0)
+  const opTotal = totalExpenses - cogsTotal
 
   // By category
   const byCategory = CATEGORIES.map(cat => ({
@@ -119,23 +124,26 @@ export default function ExpensesPage() {
         </div>
 
         {/* KPI row */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-4 gap-4">
           <div className="bg-white rounded-2xl p-5 border border-luma-border">
             <div className="text-red-500 mb-2"><TrendingDown size={18} /></div>
             <div className="text-2xl font-bold text-luma-black">${totalExpenses.toFixed(0)}</div>
             <div className="text-sm text-luma-muted">Total Expenses</div>
           </div>
           <div className="bg-white rounded-2xl p-5 border border-luma-border">
-            <div className="text-gold mb-2"><BarChart3 size={18} /></div>
-            <div className="text-2xl font-bold text-luma-black">{expenses.length}</div>
-            <div className="text-sm text-luma-muted">Transactions</div>
+            <div className="text-emerald-600 mb-2 text-lg">🧪</div>
+            <div className="text-2xl font-bold text-luma-black">${cogsTotal.toFixed(0)}</div>
+            <div className="text-sm text-luma-muted">Backbar / COGS</div>
           </div>
           <div className="bg-white rounded-2xl p-5 border border-luma-border">
-            <div className="text-blue-500 mb-2"><DollarSign size={18} /></div>
-            <div className="text-2xl font-bold text-luma-black">
-              ${expenses.length > 0 ? (totalExpenses / expenses.length).toFixed(0) : '0'}
-            </div>
-            <div className="text-sm text-luma-muted">Avg per Entry</div>
+            <div className="text-purple-500 mb-2"><BarChart3 size={18} /></div>
+            <div className="text-2xl font-bold text-luma-black">${opTotal.toFixed(0)}</div>
+            <div className="text-sm text-luma-muted">Operating Expenses</div>
+          </div>
+          <div className="bg-white rounded-2xl p-5 border border-luma-border">
+            <div className="text-gold mb-2"><DollarSign size={18} /></div>
+            <div className="text-2xl font-bold text-luma-black">{expenses.length}</div>
+            <div className="text-sm text-luma-muted">Entries This Period</div>
           </div>
         </div>
 
