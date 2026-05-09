@@ -554,49 +554,49 @@ export default function ReportsPage() {
         )}
         </>}
       </div>
-    </div>
 
-    {/* Mark as Paid modal */}
-    {markPaidTarget && (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl">
-          <div className="flex items-center justify-between p-6 border-b border-luma-border">
-            <h2 className="text-lg font-bold">Mark Payroll as Paid</h2>
-            <button onClick={() => setMarkPaidTarget(null)} className="p-2 hover:bg-luma-surface rounded-lg text-luma-muted"><X size={18} /></button>
-          </div>
-          <div className="p-6 space-y-4">
-            <div className="p-4 bg-gold/10 rounded-xl flex items-center justify-between">
+      {/* Mark as Paid modal */}
+      {markPaidTarget && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl">
+            <div className="flex items-center justify-between p-6 border-b border-luma-border">
+              <h2 className="text-lg font-bold">Mark Payroll as Paid</h2>
+              <button onClick={() => setMarkPaidTarget(null)} className="p-2 hover:bg-luma-surface rounded-lg text-luma-muted"><X size={18} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="p-4 bg-gold/10 rounded-xl flex items-center justify-between">
+                <div>
+                  <p className="font-bold text-luma-black">{markPaidTarget.name}</p>
+                  <p className="text-xs text-luma-muted mt-0.5">Payout for {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</p>
+                </div>
+                <span className="text-2xl font-bold text-gold">${markPaidTarget.payout.toFixed(2)}</span>
+              </div>
               <div>
-                <p className="font-bold text-luma-black">{markPaidTarget.name}</p>
-                <p className="text-xs text-luma-muted mt-0.5">Payout for {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</p>
+                <label className="label">Payment Method</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {['cash', 'check', 'venmo', 'zelle', 'bank', 'other'].map(m => (
+                    <button key={m} onClick={() => setPayMethod(m)}
+                      className={`py-2 rounded-xl border-2 text-xs font-semibold capitalize transition-all ${payMethod === m ? 'border-gold bg-gold/10 text-luma-black' : 'border-luma-border text-luma-muted hover:border-gold/40'}`}>
+                      {m}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <span className="text-2xl font-bold text-gold">${markPaidTarget.payout.toFixed(2)}</span>
-            </div>
-            <div>
-              <label className="label">Payment Method</label>
-              <div className="grid grid-cols-3 gap-2">
-                {['cash', 'check', 'venmo', 'zelle', 'bank', 'other'].map(m => (
-                  <button key={m} onClick={() => setPayMethod(m)}
-                    className={`py-2 rounded-xl border-2 text-xs font-semibold capitalize transition-all ${payMethod === m ? 'border-gold bg-gold/10 text-luma-black' : 'border-luma-border text-luma-muted hover:border-gold/40'}`}>
-                    {m}
-                  </button>
-                ))}
+              <div>
+                <label className="label">Notes (optional)</label>
+                <input className="input" placeholder="e.g. Paid via Venmo on 5/8" value={payNotes} onChange={e => setPayNotes(e.target.value)} />
               </div>
             </div>
-            <div>
-              <label className="label">Notes (optional)</label>
-              <input className="input" placeholder="e.g. Paid via Venmo on 5/8" value={payNotes} onChange={e => setPayNotes(e.target.value)} />
+            <div className="p-6 border-t border-luma-border flex gap-3">
+              <button onClick={() => setMarkPaidTarget(null)} className="flex-1 btn bg-luma-surface text-luma-black">Cancel</button>
+              <button onClick={markAsPaid} disabled={savingPay}
+                className="flex-1 btn btn-primary disabled:opacity-60 flex items-center justify-center gap-2">
+                <CheckCircle size={15} />{savingPay ? 'Saving...' : 'Confirm Paid'}
+              </button>
             </div>
-          </div>
-          <div className="p-6 border-t border-luma-border flex gap-3">
-            <button onClick={() => setMarkPaidTarget(null)} className="flex-1 btn bg-luma-surface text-luma-black">Cancel</button>
-            <button onClick={markAsPaid} disabled={savingPay}
-              className="flex-1 btn btn-primary disabled:opacity-60 flex items-center justify-center gap-2">
-              <CheckCircle size={15} />{savingPay ? 'Saving...' : 'Confirm Paid'}
-            </button>
           </div>
         </div>
-      </div>
-    )}
+      )}
+    </div>
   )
 }
