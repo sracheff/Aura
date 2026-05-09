@@ -36,3 +36,25 @@ CREATE INDEX IF NOT EXISTS client_formulas_owner_id_idx ON client_formulas(owner
 ALTER TABLE products
   ADD COLUMN IF NOT EXISTS tube_size      decimal(8,2) DEFAULT NULL,
   ADD COLUMN IF NOT EXISTS tube_size_unit text         DEFAULT 'oz';
+
+-- Payroll payments — tracks when a stylist has been paid for a period
+CREATE TABLE IF NOT EXISTS payroll_payments (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id       uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  staff_name     text NOT NULL,
+  period         text NOT NULL,   -- e.g. "2026-05" (YYYY-MM)
+  amount         decimal(10,2) NOT NULL,
+  payment_method text DEFAULT 'cash',  -- cash, check, venmo, zelle, bank
+  notes          text DEFAULT '',
+  paid_at        timestamptz DEFAULT now(),
+  created_at     timestamptz DEFAULT now()
+);
+
+ALTER TABLE payroll_payments ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "owners manage payroll payments"
+  ON payroll_payments FOR ALL
+  USING (owner_id = auth.uid())
+  WITH CHECK (owner_id = auth.uid());
+
+CREATE INDEX IF NOT EXISTS payroll_payments_owner_period_idx ON payroll_payments(owner_id, period);

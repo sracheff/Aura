@@ -8,7 +8,7 @@ import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis,
   Tooltip, ResponsiveContainer, CartesianGrid, Cell, PieChart, Pie
 } from 'recharts'
-import { TrendingUp, Users, Scissors, DollarSign, Star, Wallet, TrendingDown } from 'lucide-react'
+import { TrendingUp, Users, Scissors, DollarSign, Star, Wallet, TrendingDown, CheckCircle, X, AlertCircle } from 'lucide-react'
 
 type ServiceStat = { name: string; count: number; revenue: number }
 type ClientStat = { name: string; spend: number; visits: number }
@@ -29,10 +29,47 @@ export default function ReportsPage() {
   const [totalExpenses, setTotalExpenses] = useState(0)
   const [reportTab, setReportTab] = useState<'analytics' | 'payroll' | 'pnl'>('analytics')
   const [loadingData, setLoadingData] = useState(false)
+  // Payroll payments
+  const [paidRecords, setPaidRecords] = useState<{ staff_name: string; period: string; amount: number; payment_method: string; paid_at: string }[]>([])
+  const [markPaidTarget, setMarkPaidTarget] = useState<{ name: string; payout: number } | null>(null)
+  const [payMethod, setPayMethod] = useState('cash')
+  const [payNotes, setPayNotes] = useState('')
+  const [savingPay, setSavingPay] = useState(false)
 
   useEffect(() => {
-    if (userId) loadReports()
+    if (userId) { loadReports(); fetchPaidRecords() }
   }, [userId, period])
+
+  function currentPeriodKey() {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  }
+
+  async function fetchPaidRecords() {
+    const { data } = await supabase
+      .from('payroll_payments')
+      .select('staff_name, period, amount, payment_method, paid_at')
+      .eq('owner_id', userId)
+      .eq('period', currentPeriodKey())
+    setPaidRecords(data || [])
+  }
+
+  async function markAsPaid() {
+    if (!markPaidTarget) return
+    setSavingPay(true)
+    await supabase.from('payroll_payments').insert({
+      owner_id: userId,
+      staff_name: markPaidTarget.name,
+      period: currentPeriodKey(),
+      amount: markPaidTarget.payout,
+      payment_method: payMethod,
+      notes: payNotes,
+    })
+    setSavingPay(false)
+    setMarkPaidTarget(null)
+    setPayNotes('')
+    fetchPaidRecords()
+  }
 
   function getPeriodStart() {
     const now = new Date()
@@ -220,37 +257,58 @@ export default function ReportsPage() {
                 </div>
               ) : (
                 <>
-                  <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-0 px-6 py-3 border-b border-luma-border bg-luma-surface text-xs font-semibold text-luma-muted uppercase tracking-wide">
+                  <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-0 px-6 py-3 border-b border-luma-border bg-luma-surface text-xs font-semibold text-luma-muted uppercase tracking-wide">
                     <span>Stylist</span>
                     <span className="w-28 text-right">Appointments</span>
                     <span className="w-28 text-right">Revenue</span>
                     <span className="w-24 text-center">Commission</span>
                     <span className="w-28 text-right">Payout</span>
+                    <span className="w-36 text-right">Status</span>
                   </div>
                   <div className="divide-y divide-luma-border">
-                    {payrollStats.map(s => (
-                      <div key={s.name} className="grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-0 px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-bold" style={{ backgroundColor: s.color }}>
-                            {s.name.charAt(0)}
+                    {payrollStats.map(s => {
+                      const paid = paidRecords.find(r => r.staff_name === s.name)
+                      return (
+                        <div key={s.name} className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-0 px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-bold" style={{ backgroundColor: s.color }}>
+                              {s.name.charAt(0)}
+                            </div>
+                            <span className="font-semibold text-luma-black">{s.name}</span>
                           </div>
-                          <span className="font-semibold text-luma-black">{s.name}</span>
+                          <div className="w-28 text-right text-sm text-luma-muted">{s.appointments} appts</div>
+                          <div className="w-28 text-right text-sm font-medium text-luma-black">${s.revenue.toFixed(2)}</div>
+                          <div className="w-24 text-center">
+                            <span className="text-xs font-bold bg-luma-surface px-2 py-1 rounded-lg">{s.commission_rate}%</span>
+                          </div>
+                          <div className="w-28 text-right text-lg font-bold text-gold">${s.payout.toFixed(2)}</div>
+                          <div className="w-36 text-right pl-4">
+                            {paid ? (
+                              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 rounded-xl text-xs font-semibold">
+                                <CheckCircle size={12} />
+                                Paid · {paid.payment_method}
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => { setMarkPaidTarget({ name: s.name, payout: s.payout }); setPayMethod('cash'); setPayNotes('') }}
+                                disabled={s.payout <= 0}
+                                className="px-3 py-1.5 bg-luma-black text-white rounded-xl text-xs font-semibold hover:bg-gold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                Mark Paid
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <div className="w-28 text-right text-sm text-luma-muted">{s.appointments} appts</div>
-                        <div className="w-28 text-right text-sm font-medium text-luma-black">${s.revenue.toFixed(2)}</div>
-                        <div className="w-24 text-center">
-                          <span className="text-xs font-bold bg-luma-surface px-2 py-1 rounded-lg">{s.commission_rate}%</span>
-                        </div>
-                        <div className="w-28 text-right text-lg font-bold text-gold">${s.payout.toFixed(2)}</div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
-                  <div className="grid grid-cols-[1fr_auto_auto_auto_auto] px-6 py-4 border-t-2 border-luma-border bg-luma-surface">
+                  <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] px-6 py-4 border-t-2 border-luma-border bg-luma-surface">
                     <span className="font-bold text-luma-black">Total</span>
                     <span className="w-28 text-right text-sm font-semibold text-luma-black">{payrollStats.reduce((s, p) => s + p.appointments, 0)} appts</span>
                     <span className="w-28 text-right text-sm font-bold text-luma-black">${payrollStats.reduce((s, p) => s + p.revenue, 0).toFixed(2)}</span>
                     <span className="w-24" />
                     <span className="w-28 text-right text-lg font-bold text-gold">${payrollStats.reduce((s, p) => s + p.payout, 0).toFixed(2)}</span>
+                    <span className="w-36 text-right text-xs text-luma-muted pr-1">{paidRecords.length}/{payrollStats.length} paid</span>
                   </div>
                 </>
               )}
@@ -497,5 +555,48 @@ export default function ReportsPage() {
         </>}
       </div>
     </div>
+
+    {/* Mark as Paid modal */}
+    {markPaidTarget && (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl">
+          <div className="flex items-center justify-between p-6 border-b border-luma-border">
+            <h2 className="text-lg font-bold">Mark Payroll as Paid</h2>
+            <button onClick={() => setMarkPaidTarget(null)} className="p-2 hover:bg-luma-surface rounded-lg text-luma-muted"><X size={18} /></button>
+          </div>
+          <div className="p-6 space-y-4">
+            <div className="p-4 bg-gold/10 rounded-xl flex items-center justify-between">
+              <div>
+                <p className="font-bold text-luma-black">{markPaidTarget.name}</p>
+                <p className="text-xs text-luma-muted mt-0.5">Payout for {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</p>
+              </div>
+              <span className="text-2xl font-bold text-gold">${markPaidTarget.payout.toFixed(2)}</span>
+            </div>
+            <div>
+              <label className="label">Payment Method</label>
+              <div className="grid grid-cols-3 gap-2">
+                {['cash', 'check', 'venmo', 'zelle', 'bank', 'other'].map(m => (
+                  <button key={m} onClick={() => setPayMethod(m)}
+                    className={`py-2 rounded-xl border-2 text-xs font-semibold capitalize transition-all ${payMethod === m ? 'border-gold bg-gold/10 text-luma-black' : 'border-luma-border text-luma-muted hover:border-gold/40'}`}>
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="label">Notes (optional)</label>
+              <input className="input" placeholder="e.g. Paid via Venmo on 5/8" value={payNotes} onChange={e => setPayNotes(e.target.value)} />
+            </div>
+          </div>
+          <div className="p-6 border-t border-luma-border flex gap-3">
+            <button onClick={() => setMarkPaidTarget(null)} className="flex-1 btn bg-luma-surface text-luma-black">Cancel</button>
+            <button onClick={markAsPaid} disabled={savingPay}
+              className="flex-1 btn btn-primary disabled:opacity-60 flex items-center justify-center gap-2">
+              <CheckCircle size={15} />{savingPay ? 'Saving...' : 'Confirm Paid'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
   )
 }
